@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Yan.Pro — Пассажир</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0F9D58">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  :root{
+    --green:#0F9D58; --green-dark:#0B7A43; --bg:#F4F6F5; --card:#FFFFFF;
+    --text:#1B1F1D; --muted:#6B7570; --danger:#E24C4B; --radius:16px;
+    --shadow:0 4px 20px rgba(0,0,0,.12);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%; margin:0; font-family:-apple-system,Roboto,Segoe UI,sans-serif; background:var(--bg); color:var(--text); overscroll-behavior:none;}
+  #map{position:absolute; inset:0;}
+  .hidden{display:none !important;}
+  button{font-family:inherit; border:none; cursor:pointer;}
+
+  /* ── Экран авторизации ─────────────────────────────────────────── */
+  #authScreen{position:fixed; inset:0; background:var(--green); display:flex; flex-direction:column; justify-content:center; padding:24px; z-index:50;}
+  #authScreen h1{color:#fff; font-size:28px; margin:0 0 4px;}
+  #authScreen p.sub{color:#DFF5E8; margin:0 0 24px;}
+  .authCard{background:var(--card); border-radius:var(--radius); padding:20px; box-shadow:var(--shadow);}
+  .field{margin-bottom:12px;}
+  .field label{display:block; font-size:13px; color:var(--muted); margin-bottom:4px;}
+  .field input,.field select{width:100%; padding:12px 14px; border:1px solid #E1E5E2; border-radius:10px; font-size:16px;}
+  .primaryBtn{width:100%; padding:14px; background:var(--green); color:#fff; border-radius:10px; font-size:16px; font-weight:600;}
+  .primaryBtn:active{background:var(--green-dark);}
+  .primaryBtn:disabled{opacity:.5;}
+  .linkBtn{background:none; color:var(--green); font-size:14px; width:100%; padding:10px; margin-top:6px;}
+  .authError{color:var(--danger); font-size:13px; margin:8px 0 0; min-height:16px;}
+
+  /* ── Верхняя панель ─────────────────────────────────────────────── */
+  #topBar{position:fixed; top:0; left:0; right:0; padding:10px 12px; display:flex; gap:8px; z-index:20;}
+  .roundBtn{width:44px; height:44px; border-radius:50%; background:#fff; box-shadow:var(--shadow); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;}
+  #searchInput{flex:1; padding:0 14px; border-radius:22px; border:none; background:#fff; box-shadow:var(--shadow); font-size:15px;}
+  #suggestions{position:fixed; top:60px; left:12px; right:12px; background:#fff; border-radius:12px; box-shadow:var(--shadow); z-index:20; max-height:40vh; overflow-y:auto;}
+  #suggestions div{padding:12px 14px; border-bottom:1px solid #F0F0F0; font-size:14px;}
+  #suggestions div:last-child{border-bottom:none;}
+
+  /* ── Нижний лист ────────────────────────────────────────────────── */
+  #sheet{position:fixed; left:0; right:0; bottom:0; background:var(--card); border-radius:20px 20px 0 0; box-shadow:0 -4px 24px rgba(0,0,0,.15); padding:14px 16px calc(16px + env(safe-area-inset-bottom)); z-index:30; max-height:70vh; overflow-y:auto;}
+  .dragHandle{width:36px; height:4px; background:#DDD; border-radius:2px; margin:0 auto 12px;}
+  .modeTabs{display:flex; gap:8px; margin-bottom:14px;}
+  .modeTab{flex:1; padding:10px; text-align:center; border-radius:10px; background:#F0F2F1; color:var(--muted); font-size:14px; font-weight:600;}
+  .modeTab.active{background:var(--green); color:#fff;}
+  .addrRow{display:flex; align-items:center; gap:10px; padding:12px 0; border-bottom:1px solid #F0F0F0;}
+  .dot{width:10px; height:10px; border-radius:50%; flex-shrink:0;}
+  .dot.pickup{background:var(--green);}
+  .dot.dest{background:var(--danger);}
+  .addrRow .addrText{flex:1; font-size:15px;}
+  .addrRow .addrText.placeholder{color:var(--muted);}
+  .hint{font-size:12px; color:var(--muted); margin:6px 0 12px; line-height:1.4;}
+  select,input[type=tel],textarea{width:100%; padding:12px 14px; border:1px solid #E1E5E2; border-radius:10px; font-size:15px; margin-bottom:10px;}
+  textarea{resize:none; height:60px;}
+
+  .statusCard{text-align:center; padding:8px 0 16px;}
+  .statusCard .big{font-size:17px; font-weight:600; margin-bottom:4px;}
+  .statusCard .small{font-size:13px; color:var(--muted);}
+  .driverRow{display:flex; align-items:center; gap:12px; padding:10px 0; border-top:1px solid #F0F0F0; border-bottom:1px solid #F0F0F0; margin:10px 0;}
+  .avatar{width:44px; height:44px; border-radius:50%; background:var(--green); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:16px; flex-shrink:0;}
+  .driverInfo .name{font-weight:600; font-size:15px;}
+  .driverInfo .role{font-size:12px; color:var(--muted);}
+  .actionsRow{display:flex; gap:10px; margin-top:10px;}
+  .actionsRow button{flex:1; padding:13px; border-radius:10px; font-size:14px; font-weight:600;}
+  .btnGreen{background:var(--green); color:#fff;}
+  .btnGray{background:#F0F2F1; color:var(--text);}
+  .btnDanger{background:#FDEDED; color:var(--danger);}
+
+  /* ── Чат ────────────────────────────────────────────────────────── */
+  #chatOverlay{position:fixed; inset:0; background:var(--card); z-index:60; display:flex; flex-direction:column;}
+  #chatHeader{display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid #F0F0F0;}
+  #chatHeader .backBtn{font-size:20px; background:none; padding:4px;}
+  #chatMessages{flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:8px;}
+  .msg{max-width:75%; padding:10px 13px; border-radius:14px; font-size:14px; line-height:1.35;}
+  .msg.mine{align-self:flex-end; background:var(--green); color:#fff; border-bottom-right-radius:4px;}
+  .msg.theirs{align-self:flex-start; background:#F0F2F1; color:var(--text); border-bottom-left-radius:4px;}
+  #chatInputRow{display:flex; gap:8px; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid #F0F0F0;}
+  #chatInputRow input{flex:1; padding:12px 14px; border-radius:20px; border:1px solid #E1E5E2; font-size:15px;}
+  #chatInputRow button{width:44px; height:44px; border-radius:50%; background:var(--green); color:#fff; font-size:18px;}
+
+  #toast{position:fixed; left:50%; bottom:100px; transform:translateX(-50%); background:#1B1F1D; color:#fff; padding:10px 18px; border-radius:22px; font-size:13px; z-index:80; opacity:0; transition:opacity .25s; pointer-events:none;}
+  #toast.show{opacity:1;}
+
+  .pinMarker{width:28px; height:28px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); border:3px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.3);}
+  .pinMarker.pickup{background:var(--green);}
+  .pinMarker.dest{background:var(--danger);}
+  .driverMarker{width:34px; height:34px; border-radius:50%; background:#fff; box-shadow:var(--shadow); display:flex; align-items:center; justify-content:center; font-size:18px;}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ ЭКРАН ВХОДА ═══════════════ -->
+<div id="authScreen">
+  <h1>Yan.Pro</h1>
+  <p class="sub">Такси и помощь на дороге</p>
+  <div class="authCard">
+    <div id="loginForm">
+      <div class="field"><label>Логин</label><input id="loginLogin" autocomplete="username"></div>
+      <div class="field"><label>Пароль</label><input id="loginPass" type="password" autocomplete="current-password"></div>
+      <button class="primaryBtn" id="btnLogin">Войти</button>
+      <button class="linkBtn" id="toRegister">Нет аккаунта? Зарегистрироваться</button>
+    </div>
+    <div id="registerForm" class="hidden">
+      <div class="field"><label>Имя</label><input id="regName"></div>
+      <div class="field"><label>Логин</label><input id="regLogin" autocomplete="username"></div>
+      <div class="field"><label>Телефон</label><input id="regPhone" type="tel" placeholder="+7..."></div>
+      <div class="field"><label>Пароль (мин. 6 символов)</label><input id="regPass" type="password" autocomplete="new-password"></div>
+      <button class="primaryBtn" id="btnRegister">Зарегистрироваться</button>
+      <button class="linkBtn" id="toLogin">Уже есть аккаунт? Войти</button>
+    </div>
+    <div class="authError" id="authError"></div>
+  </div>
+  <button class="linkBtn" id="btnServerSettings" style="color:#DFF5E8; margin-top:16px;">⚙ Адрес сервера</button>
+</div>
+
+<!-- ═══════════════ КАРТА / ОСНОВНОЕ ПРИЛОЖЕНИЕ ═══════════════ -->
+<div id="map"></div>
+
+<div id="topBar" class="hidden">
+  <button class="roundBtn" id="btnMenu">☰</button>
+  <input id="searchInput" placeholder="Куда едем?">
+  <button class="roundBtn" id="btnLocate">◎</button>
+</div>
+<div id="suggestions" class="hidden"></div>
+
+<div id="sheet" class="hidden"></div>
+<div id="toast"></div>
+
+<!-- ═══════════════ ЧАТ ═══════════════ -->
+<div id="chatOverlay" class="hidden">
+  <div id="chatHeader">
+    <button class="backBtn" id="chatBack">←</button>
+    <div class="driverInfo"><div class="name" id="chatPeerName">Собеседник</div></div>
+  </div>
+  <div id="chatMessages"></div>
+  <div id="chatInputRow">
+    <input id="chatInput" placeholder="Сообщение...">
+    <button id="chatSend">➤</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ════════════════════════ КОНФИГ / СОСТОЯНИЕ ════════════════════════ */
+const ORENBURG = { lat: 51.7727, lon: 55.0988 };
+const state = {
+  serverUrl: localStorage.getItem('yanpro_server_url') || 'https://your-server.example',
+  token: localStorage.getItem('yanpro_token') || null,
+  user: JSON.parse(localStorage.getItem('yanpro_user') || 'null'),
+  socket: null,
+  map: null,
+  markers: { pickup: null, dest: null, driver: null },
+  pickup: null,       // {lat, lon, address}
+  destination: null,  // {lat, lon, address}
+  mode: 'ride',        // 'ride' | 'assist'
+  activeRide: null,
+  activeAssist: null,
+  chatContext: null,   // {contextType, contextId}
+  geoWatchId: null,
+};
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+/* ════════════════════════ REST API ════════════════════════ */
+async function api(path, method = 'GET', body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  const res = await fetch(state.serverUrl + path, {
+    method, headers, body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `http_${res.status}`);
+  return data;
+}
+
+/* ════════════════════════ АВТОРИЗАЦИЯ ════════════════════════ */
+const authError = document.getElementById('authError');
+document.getElementById('toRegister').onclick = () => {
+  document.getElementById('loginForm').classList.add('hidden');
+  document.getElementById('registerForm').classList.remove('hidden');
+  authError.textContent = '';
+};
+document.getElementById('toLogin').onclick = () => {
+  document.getElementById('registerForm').classList.add('hidden');
+  document.getElementById('loginForm').classList.remove('hidden');
+  authError.textContent = '';
+};
+document.getElementById('btnServerSettings').onclick = () => {
+  const url = prompt('Адрес сервера (например, https://taxi.example.com)', state.serverUrl);
+  if (url) { state.serverUrl = url.trim().replace(/\/$/, ''); localStorage.setItem('yanpro_server_url', state.serverUrl); toast('Адрес сервера сохранён'); }
+};
+
+document.getElementById('btnLogin').onclick = async () => {
+  const login = document.getElementById('loginLogin').value.trim();
+  const password = document.getElementById('loginPass').value;
+  if (!login || !password) { authError.textContent = 'Заполните все поля'; return; }
+  try {
+    const data = await api('/api/auth/login', 'POST', { login, password });
+    onAuthSuccess(data);
+  } catch (e) { authError.textContent = 'Неверный логин или пароль'; }
+};
+
+document.getElementById('btnRegister').onclick = async () => {
+  const name = document.getElementById('regName').value.trim();
+  const login = document.getElementById('regLogin').value.trim();
+  const phone = document.getElementById('regPhone').value.trim();
+  const password = document.getElementById('regPass').value;
+  if (!name || !login || password.length < 6) { authError.textContent = 'Проверьте поля (пароль от 6 символов)'; return; }
+  try {
+    const data = await api('/api/auth/register', 'POST', { name, login, phone, password, role: 'passenger' });
+    onAuthSuccess(data);
+  } catch (e) {
+    authError.textContent = e.message === 'login_taken' ? 'Такой логин уже занят' : 'Ошибка регистрации';
+  }
+};
+
+function onAuthSuccess(data) {
+  state.token = data.token;
+  state.user = data.user;
+  localStorage.setItem('yanpro_token', state.token);
+  localStorage.setItem('yanpro_user', JSON.stringify(state.user));
+  startApp();
+}
+
+/* ════════════════════════ СТАРТ ПРИЛОЖЕНИЯ ════════════════════════ */
+function startApp() {
+  document.getElementById('authScreen').classList.add('hidden');
+  document.getElementById('topBar').classList.remove('hidden');
+  if (!state.map) initMap();
+  connectSocket();
+  renderSheetIdle();
+  locateMe(true);
+}
+
+if (state.token && state.user) startApp();
+
+/* ════════════════════════ КАРТА ════════════════════════ */
+// Простой растровый стиль на прямых тайлах OSM — единственная зависимость здесь
+// это доступность tile-серверов OSM, никакого внешнего style.json не требуется.
+// Используется как запасной вариант, если vector-стиль openfreemap не загрузился
+// (например, из-за блокировок/таймаутов у провайдера).
+const FALLBACK_RASTER_STYLE = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+};
+
+function initMap() {
+  state.map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://tiles.openfreemap.org/styles/liberty',
+    center: [ORENBURG.lon, ORENBURG.lat],
+    zoom: 13,
+  });
+  state.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+
+  // Если основной стиль не загрузился (сеть заблокировала openfreemap.org
+  // или он недоступен) — переключаемся на простые растровые тайлы OSM,
+  // а не оставляем пустой серый экран.
+  let fellBack = false;
+  state.map.on('error', (e) => {
+    console.warn('Map error:', e?.error?.message || e);
+    if (!fellBack && !state.map.isStyleLoaded()) {
+      fellBack = true;
+      state.map.setStyle(FALLBACK_RASTER_STYLE);
+      toast('Карта работает в упрощённом режиме');
+    }
+  });
+  // Если через 6 секунд стиль так и не загрузился — тоже переключаемся,
+  // не дожидаясь явной ошибки (бывают тихие таймауты без события error).
+  setTimeout(() => {
+    if (!fellBack && !state.map.isStyleLoaded()) {
+      fellBack = true;
+      state.map.setStyle(FALLBACK_RASTER_STYLE);
+      toast('Карта работает в упрощённом режиме');
+    }
+  }, 6000);
+
+  // Хак Safari/старых WebView: если карта инициализировалась, пока контейнер был
+  // скрыт (display:none / нулевая высота), тайлы рисуются в неправильном размере.
+  setTimeout(() => state.map.resize(), 300);
+
+  // Долгое нажатие / клик по карте — ручная установка точки (всегда доступно,
+  // не только как запасной вариант при сбое геолокации).
+  state.map.on('click', (e) => {
+    if (state.activeRide || state.activeAssist) return; // во время активной поездки клики по карте не меняют точки
+    const { lng, lat } = e.lngLat;
+    if (!state.pickup) setPickup(lat, lng);
+    else setDestination(lat, lng);
+  });
+}
+
+function placeMarker(kind, lat, lon) {
+  if (state.markers[kind]) state.markers[kind].remove();
+  const el = document.createElement('div');
+  el.className = kind === 'driver' ? 'driverMarker' : `pinMarker ${kind}`;
+  if (kind === 'driver') el.textContent = '🚗';
+  const draggable = kind !== 'driver' && !state.activeRide && !state.activeAssist;
+  const marker = new maplibregl.Marker({ element: el, draggable })
+    .setLngLat([lon, lat]).addTo(state.map);
+  if (draggable) {
+    marker.on('dragend', () => {
+      const p = marker.getLngLat();
+      if (kind === 'pickup') setPickup(p.lat, p.lng, true);
+      else setDestination(p.lat, p.lng, true);
+    });
+  }
+  state.markers[kind] = marker;
+}
+
+/* ════════════════════════ ГЕОЛОКАЦИЯ С ГРАДАЦИЕЙ FALLBACK'ОВ ═══════════════
+   1) GPS/браузерная геолокация с таймаутом
+   2) если недоступна/не отвечает — просто оставляем карту там, где она есть,
+      и пользователь ставит точку сам (drag или клик) — это ОСНОВНОЙ способ
+      на старых устройствах/планшетах, а не "аварийный".                    */
+function getPositionWithTimeout(timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('no_geolocation_api'));
+    const timer = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { clearTimeout(timer); resolve(pos); },
+      (err) => { clearTimeout(timer); reject(err); },
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 30000 }
+    );
+  });
+}
+
+async function locateMe(silent) {
+  try {
+    const pos = await getPositionWithTimeout();
+    const { latitude: lat, longitude: lon } = pos.coords;
+    state.map.flyTo({ center: [lon, lat], zoom: 15 });
+    if (!state.pickup) setPickup(lat, lon);
+    else if (!silent) toast('Местоположение обновлено');
+  } catch (e) {
+    if (!silent) toast('Не удалось определить местоположение — поставьте точку на карте вручную');
+    // Карта остаётся там, где была (или на Оренбурге по умолчанию) — пользователь ставит пин сам.
+  }
+}
+document.getElementById('btnLocate').onclick = () => locateMe(false);
+
+async function reverseGeocode(lat, lon) {
+  try {
+    const data = await api(`/api/geocode/reverse?lat=${lat}&lon=${lon}`);
+    return data.address;
+  } catch { return `${lat.toFixed(5)}, ${lon.toFixed(5)}`; }
+}
+
+async function setPickup(lat, lon, skipReverse) {
+  state.pickup = { lat, lon, address: skipReverse ? state.pickup?.address : null };
+  placeMarker('pickup', lat, lon);
+  renderSheetIdle();
+  const addr = await reverseGeocode(lat, lon);
+  state.pickup.address = addr;
+  renderSheetIdle();
+}
+async function setDestination(lat, lon) {
+  state.destination = { lat, lon, address: null };
+  placeMarker('dest', lat, lon);
+  renderSheetIdle();
+  const addr = await reverseGeocode(lat, lon);
+  state.destination.address = addr;
+  renderSheetIdle();
+}
+
+/* ════════════════════════ ПОИСК АДРЕСА (через серверный прокси) ═══════════ */
+let searchDebounce;
+document.getElementById('searchInput').oninput = (e) => {
+  clearTimeout(searchDebounce);
+  const q = e.target.value.trim();
+  const box = document.getElementById('suggestions');
+  if (q.length < 3) { box.classList.add('hidden'); return; }
+  searchDebounce = setTimeout(async () => {
+    try {
+      const data = await api(`/api/geocode?q=${encodeURIComponent(q)}`);
+      box.innerHTML = '';
+      if (!data.results.length) { box.innerHTML = '<div>Ничего не найдено — можно поставить точку на карте вручную</div>'; }
+      data.results.forEach((r) => {
+        const div = document.createElement('div');
+        div.textContent = r.address;
+        div.onclick = () => {
+          box.classList.add('hidden');
+          document.getElementById('searchInput').value = '';
+          state.map.flyTo({ center: [r.lon, r.lat], zoom: 15 });
+          if (!state.pickup) { setPickup(r.lat, r.lon); }
+          else { state.destination = { lat: r.lat, lon: r.lon, address: r.address }; placeMarker('dest', r.lat, r.lon); renderSheetIdle(); }
+        };
+        box.appendChild(div);
+      });
+      box.classList.remove('hidden');
+    } catch { box.classList.add('hidden'); toast('Поиск адреса недоступен'); }
+  }, 400);
+};
+
+/* ════════════════════════ SOCKET.IO ════════════════════════ */
+function connectSocket() {
+  if (state.socket) state.socket.disconnect();
+  state.socket = io(state.serverUrl, { auth: { token: state.token }, transports: ['websocket', 'polling'] });
+
+  state.socket.on('connect_error', (err) => {
+    if (err.message === 'invalid_token' || err.message === 'no_token') { logout(); }
+    else toast('Нет соединения с сервером');
+  });
+
+  state.socket.on('session:restore_ride', (ride) => { state.activeRide = ride; renderRideState(ride.status); });
+  state.socket.on('session:restore_assist', (a) => { state.activeAssist = a; renderAssistState(a.status); });
+
+  state.socket.on('ride:created', () => renderSheetSearching('ride'));
+  state.socket.on('ride:accepted', (data) => {
+    state.activeRide = { ...(state.activeRide || {}), id: data.rideId, driver_id: data.driverId };
+    state.chatContext = { contextType: 'ride', contextId: data.rideId };
+    toast(`Водитель ${data.driverName} принял заказ`);
+    renderRideAccepted(data.driverName);
+  });
+  state.socket.on('ride:already_taken', () => toast('Заказ уже занят'));
+  state.socket.on('ride:driver_location', (data) => {
+    placeMarker('driver', data.lat, data.lon);
+  });
+  state.socket.on('ride:started', () => renderRideState('in_progress'));
+  state.socket.on('ride:finished', () => { toast('Поездка завершена'); resetRide(); });
+  state.socket.on('ride:cancelled', (data) => { toast(data.by === 'driver' ? 'Водитель отменил поездку' : 'Поездка отменена'); resetRide(); });
+
+  state.socket.on('assistance:created', () => renderSheetSearching('assist'));
+  state.socket.on('assistance:accepted', (data) => {
+    state.activeAssist = { ...(state.activeAssist || {}), id: data.assistId, mechanic_id: data.mechanicId };
+    state.chatContext = { contextType: 'assist', contextId: data.assistId };
+    toast(`Мастер ${data.mechanicName} выехал`);
+    renderAssistAccepted(data.mechanicName);
+  });
+  state.socket.on('assistance:already_taken', () => toast('Заявку уже принял другой мастер'));
+  state.socket.on('assistance:driver_location', (data) => placeMarker('driver', data.lat, data.lon));
+  state.socket.on('assistance:finished', () => { toast('Мастер завершил работу'); resetAssist(); });
+  state.socket.on('assistance:cancelled', (data) => { toast(data.by === 'mechanic' ? 'Мастер отменил заявку' : 'Заявка отменена'); resetAssist(); });
+
+  state.socket.on('chat:message', (m) => appendChatMessage(m));
+  state.socket.on('chat:history', (data) => {
+    document.getElementById('chatMessages').innerHTML = '';
+    data.messages.forEach(appendChatMessage);
+  });
+
+  state.socket.on('error:server', (e) => console.warn('server error', e));
+}
+
+function sendLocationUpdate(lat, lon) {
+  if (!state.socket) return;
+  const payload = { lat, lon };
+  if (state.activeRide) payload.rideId = state.activeRide.id;
+  if (state.activeAssist) payload.assistId = state.activeAssist.id;
+  state.socket.emit('location:update', payload);
+}
+// Пассажир тоже периодически шлёт своё местоположение — полезно для точного пикапа,
+// не мешает водителям (водители видны через отдельный geo-набор на сервере).
+navigator.geolocation && navigator.geolocation.watchPosition(
+  (pos) => sendLocationUpdate(pos.coords.latitude, pos.coords.longitude),
+  () => {}, { enableHighAccuracy: false, maximumAge: 15000, timeout: 10000 }
+);
+
+/* ════════════════════════ НИЖНИЙ ЛИСТ — СОСТОЯНИЯ ════════════════════════ */
+const sheet = document.getElementById('sheet');
+
+function renderSheetIdle() {
+  if (state.activeRide || state.activeAssist) return; // не перерисовываем поверх активного состояния
+  sheet.classList.remove('hidden');
+  const pickupText = state.pickup?.address || (state.pickup ? 'Определяем адрес...' : 'Точка не выбрана — коснитесь карты');
+  const destText = state.destination?.address || (state.destination ? 'Определяем адрес...' : 'Куда едем?');
+
+  if (state.mode === 'ride') {
+    sheet.innerHTML = `
+      <div class="dragHandle"></div>
+      <div class="modeTabs">
+        <div class="modeTab active" id="tabRide">🚕 Поездка</div>
+        <div class="modeTab" id="tabAssist">🔧 Помощь на дороге</div>
+      </div>
+      <div class="addrRow"><div class="dot pickup"></div><div class="addrText ${!state.pickup ? 'placeholder' : ''}">${pickupText}</div></div>
+      <div class="addrRow"><div class="dot dest"></div><div class="addrText ${!state.destination ? 'placeholder' : ''}">${destText}</div></div>
+      <div class="hint">Коснитесь карты, чтобы поставить точку А, затем точку Б. Точку можно перетащить пальцем — это надёжнее автоматической геолокации на старых устройствах.</div>
+      <button class="primaryBtn" id="btnOrder" ${(!state.pickup || !state.destination) ? 'disabled' : ''}>Заказать</button>
+    `;
+    document.getElementById('btnOrder').onclick = orderRide;
+  } else {
+    sheet.innerHTML = `
+      <div class="dragHandle"></div>
+      <div class="modeTabs">
+        <div class="modeTab" id="tabRide">🚕 Поездка</div>
+        <div class="modeTab active" id="tabAssist">🔧 Помощь на дороге</div>
+      </div>
+      <div class="addrRow"><div class="dot pickup"></div><div class="addrText ${!state.pickup ? 'placeholder' : ''}">${pickupText}</div></div>
+      <select id="breakdownType">
+        <option value="battery">Не заводится / аккумулятор</option>
+        <option value="tire">Прокол колеса</option>
+        <option value="fuel">Закончилось топливо</option>
+        <option value="lockout">Заблокирован в машине</option>
+        <option value="other">Другое</option>
+      </select>
+      <input id="carMake" placeholder="Марка автомобиля">
+      <input id="phoneField" type="tel" placeholder="Телефон для связи">
+      <textarea id="descField" placeholder="Опишите проблему"></textarea>
+      <button class="primaryBtn" id="btnAssist" ${!state.pickup ? 'disabled' : ''}>Вызвать мастера</button>
+    `;
+    document.getElementById('btnAssist').onclick = requestAssistance;
+  }
+  document.getElementById('tabRide').onclick = () => { state.mode = 'ride'; renderSheetIdle(); };
+  document.getElementById('tabAssist').onclick = () => { state.mode = 'assist'; renderSheetIdle(); };
+}
+
+function renderSheetSearching(kind) {
+  sheet.innerHTML = `
+    <div class="dragHandle"></div>
+    <div class="statusCard">
+      <div class="big">${kind === 'ride' ? 'Ищем водителя...' : 'Ищем мастера...'}</div>
+      <div class="small">Обычно это занимает меньше минуты</div>
+    </div>
+    <button class="actionsRow" style="display:block;" id="btnCancelSearch">
+    </button>
+    <div class="actionsRow"><button class="btnDanger" style="flex:1" id="btnCancelSearch2">Отменить</button></div>
+  `;
+  const cancel = () => kind === 'ride' ? cancelRide('passenger_cancel') : cancelAssistance();
+  document.getElementById('btnCancelSearch2').onclick = cancel;
+}
+
+function renderRideAccepted(driverName) {
+  renderRideState('accepted', driverName);
+}
+function renderAssistAccepted(mechanicName) {
+  renderAssistState('accepted', mechanicName);
+}
+
+function renderRideState(status, driverName) {
+  const label = { accepted: 'Водитель едет к вам', in_progress: 'В пути', searching: 'Ищем водителя...' }[status] || status;
+  sheet.innerHTML = `
+    <div class="dragHandle"></div>
+    <div class="statusCard"><div class="big">${label}</div></div>
+    <div class="driverRow">
+      <div class="avatar">${(driverName || 'В')[0]}</div>
+      <div class="driverInfo"><div class="name">${driverName || 'Водитель'}</div><div class="role">Водитель</div></div>
+    </div>
+    <div class="actionsRow">
+      <button class="btnGreen" id="btnOpenChat">💬 Чат</button>
+      <button class="btnDanger" id="btnCancelRide">Отменить</button>
+    </div>
+  `;
+  document.getElementById('btnOpenChat').onclick = openChat;
+  document.getElementById('btnCancelRide').onclick = () => cancelRide('passenger_cancel');
+}
+
+function renderAssistState(status, mechanicName) {
+  const label = { accepted: 'Мастер выехал', in_progress: 'Мастер в пути', waiting: 'Ищем мастера...' }[status] || status;
+  sheet.innerHTML = `
+    <div class="dragHandle"></div>
+    <div class="statusCard"><div class="big">${label}</div></div>
+    <div class="driverRow">
+      <div class="avatar">${(mechanicName || 'М')[0]}</div>
+      <div class="driverInfo"><div class="name">${mechanicName || 'Мастер'}</div><div class="role">Механик</div></div>
+    </div>
+    <div class="actionsRow">
+      <button class="btnGreen" id="btnOpenChat">💬 Чат</button>
+      <button class="btnDanger" id="btnCancelAssist">Отменить</button>
+    </div>
+  `;
+  document.getElementById('btnOpenChat').onclick = openChat;
+  document.getElementById('btnCancelAssist').onclick = cancelAssistance;
+}
+
+/* ════════════════════════ МАРШРУТЫ (OSRM) ════════════════════════ */
+async function getAndDrawRoute(lat1, lon1, lat2, lon2) {
+  try {
+    const res = await fetch(state.serverUrl + '/api/routing/route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startLat: lat1, startLon: lon1, endLat: lat2, endLon: lon2 })
+    });
+    if (!res.ok) throw new Error('Route error');
+    const route = await res.json();
+    
+    // Рисуем маршрут на карте (жёлтая линия)
+    if (state.map && state.map.isStyleLoaded()) {
+      if (state.map.getSource('route-line')) {
+        state.map.removeLayer('route-line');
+        state.map.removeSource('route-line');
+      }
+      state.map.addSource('route-line', { type: 'geojson', data: route.geometry });
+      state.map.addLayer({
+        id: 'route-line', type: 'line', source: 'route-line',
+        paint: { 'line-color': '#FFCC00', 'line-width': 4, 'line-opacity': 0.8 }
+      });
+    }
+    return route;
+  } catch (err) {
+    console.error('Route error:', err);
+    drawDirectLine(lat1, lon1, lat2, lon2);
+    return null;
+  }
+}
+
+function drawDirectLine(lat1, lon1, lat2, lon2) {
+  if (!state.map || !state.map.isStyleLoaded()) return;
+  if (state.map.getSource('route-line')) {
+    state.map.removeLayer('route-line');
+    state.map.removeSource('route-line');
+  }
+  state.map.addSource('route-line', {
+    type: 'geojson',
+    data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [[lon1, lat1], [lon2, lat2]] } }
+  });
+  state.map.addLayer({
+    id: 'route-line', type: 'line', source: 'route-line',
+    paint: { 'line-color': '#FFCC00', 'line-width': 3 }
+  });
+}
+
+/* ════════════════════════ ДЕЙСТВИЯ ════════════════════════ */
+async function orderRide() {
+  if (!state.pickup || !state.destination) return;
+  
+  // Показываем "Ищу маршрут..."
+  renderSheetSearching('ride');
+  
+  // Получаем маршрут через OSRM
+  const route = await getAndDrawRoute(
+    state.pickup.lat, state.pickup.lon,
+    state.destination.lat, state.destination.lon
+  );
+  
+  // Отправляем заказ с маршрутом
+  state.socket.emit('ride:request', {
+    pickup: { lat: state.pickup.lat, lon: state.pickup.lon },
+    pickupAddress: state.pickup.address,
+    destination: { lat: state.destination.lat, lon: state.destination.lon },
+    destinationAddress: state.destination.address,
+    route: route
+  });
+}
+
+function requestAssistance() {
+  if (!state.pickup) return;
+  const breakdownType = document.getElementById('breakdownType').value;
+  const carMake = document.getElementById('carMake').value.trim();
+  const phone = document.getElementById('phoneField').value.trim();
+  const description = document.getElementById('descField').value.trim();
+  state.socket.emit('assistance:request', {
+    pickup: { lat: state.pickup.lat, lon: state.pickup.lon },
+    breakdownType, carMake, phone, description,
+  });
+  renderSheetSearching('assist');
+}
+
+function cancelRide(reason) {
+  if (!state.activeRide && !state.socket) return;
+  const rideId = state.activeRide?.id;
+  if (rideId) state.socket.emit('ride:cancel', { rideId, reason });
+  resetRide();
+}
+function cancelAssistance() {
+  const assistId = state.activeAssist?.id;
+  if (assistId) state.socket.emit('assistance:cancel', { assistId });
+  resetAssist();
+}
+
+function resetRide() {
+  state.activeRide = null; state.chatContext = null;
+  state.pickup = null; state.destination = null;
+  Object.values(state.markers).forEach((m) => m && m.remove());
+  state.markers = { pickup: null, dest: null, driver: null };
+  renderSheetIdle();
+}
+function resetAssist() {
+  state.activeAssist = null; state.chatContext = null;
+  state.pickup = null;
+  Object.values(state.markers).forEach((m) => m && m.remove());
+  state.markers = { pickup: null, dest: null, driver: null };
+  renderSheetIdle();
+}
+
+/* ════════════════════════ ЧАТ (строго внутри комнаты ride/assist на сервере) ══ */
+function openChat() {
+  document.getElementById('chatOverlay').classList.remove('hidden');
+  document.getElementById('chatMessages').innerHTML = '';
+  if (state.chatContext) state.socket.emit('chat:history', state.chatContext);
+}
+document.getElementById('chatBack').onclick = () => document.getElementById('chatOverlay').classList.add('hidden');
+document.getElementById('chatSend').onclick = sendChat;
+document.getElementById('chatInput').onkeydown = (e) => { if (e.key === 'Enter') sendChat(); };
+
+function sendChat() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text || !state.chatContext) return;
+  state.socket.emit('chat:send', { ...state.chatContext, text });
+  input.value = '';
+}
+function appendChatMessage(m) {
+  const box = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg ' + (m.senderId === state.user.id ? 'mine' : 'theirs');
+  div.textContent = m.text;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+/* ════════════════════════ ВЫХОД ════════════════════════ */
+function logout() {
+  localStorage.removeItem('yanpro_token'); localStorage.removeItem('yanpro_user');
+  location.reload();
+}
+document.getElementById('btnMenu').onclick = () => { if (confirm('Выйти из аккаунта?')) logout(); };
+
+</script>
+</body>
+</html>

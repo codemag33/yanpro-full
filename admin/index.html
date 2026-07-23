@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yan.Pro — Admin Dashboard</title>
+<link rel="manifest" href="manifest.json">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, Roboto, sans-serif; background: #0F0F0F; color: #fff; }
+  #authScreen { position: fixed; inset: 0; background: #0F0F0F; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 24px; z-index: 50; }
+  .authCard { background: #1A1A1A; border-radius: 16px; padding: 32px; width: 100%; max-width: 400px; box-shadow: 0 8px 32px rgba(0,0,0,.6); }
+  .authCard h1 { color: #FFD700; margin: 0 0 24px; text-align: center; font-size: 28px; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 13px; color: #999; margin-bottom: 4px; }
+  .field input { width: 100%; padding: 12px; border: 1px solid #333; border-radius: 8px; background: #252525; color: #fff; font-size: 15px; }
+  .primaryBtn { width: 100%; padding: 14px; background: #FFD700; color: #000; border: none; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; }
+  .primaryBtn:active { background: #E0B400; }
+  .error { color: #FF5252; font-size: 13px; margin-top: 8px; }
+
+  #dashboard { display: none; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; background: #1A1A1A; border-bottom: 1px solid #333; }
+  .topbar h1 { margin: 0; font-size: 24px; color: #FFD700; }
+  .topbar button { background: #252525; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+  .topbar button:active { background: #333; }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .card { background: #1A1A1A; border-radius: 12px; padding: 20px; border: 1px solid #333; }
+  .card h3 { margin: 0 0 12px; font-size: 13px; color: #999; text-transform: uppercase; }
+  .card .value { font-size: 32px; font-weight: 700; color: #FFD700; }
+  .card .delta { font-size: 12px; color: #666; margin-top: 4px; }
+
+  .section { margin-bottom: 32px; }
+  .section h2 { font-size: 18px; margin: 0 0 16px; color: #fff; }
+  .table { width: 100%; border-collapse: collapse; background: #1A1A1A; border-radius: 8px; overflow: hidden; }
+  .table th { background: #252525; padding: 12px; text-align: left; font-size: 13px; color: #999; font-weight: 600; }
+  .table td { padding: 12px; border-bottom: 1px solid #333; font-size: 14px; }
+  .table tbody tr:hover { background: #252525; }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge.online { background: #1B5E20; color: #4CAF50; }
+  .badge.offline { background: #3A2A2A; color: #FF5252; }
+  .badge.completed { background: #1B4620; color: #4CAF50; }
+  .badge.cancelled { background: #3A2A2A; color: #FF5252; }
+
+  #chartContainer { background: #1A1A1A; border-radius: 12px; padding: 20px; border: 1px solid #333; margin-bottom: 32px; }
+  canvas { max-height: 400px; }
+
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #252525; padding: 12px 24px; border-radius: 24px; font-size: 14px; z-index: 100; }
+</style>
+</head>
+<body>
+
+<div id="authScreen">
+  <div class="authCard">
+    <h1>Yan.Pro</h1>
+    <h2 style="margin: 0 0 24px; text-align: center; font-size: 16px; color: #999;">Admin Dashboard</h2>
+    <div class="field"><label>Логин</label><input id="loginInput" placeholder="admin"></div>
+    <div class="field"><label>Пароль</label><input id="passwordInput" type="password" placeholder="••••••"></div>
+    <button class="primaryBtn" id="btnLogin">Войти</button>
+    <div class="error" id="authError"></div>
+    <div style="margin-top: 16px; text-align: center;">
+      <input id="serverInput" type="text" placeholder="http://localhost:3002" style="width: 100%; padding: 10px; border: 1px solid #333; border-radius: 6px; background: #252525; color: #fff; font-size: 14px;">
+    </div>
+  </div>
+</div>
+
+<div id="dashboard">
+  <div class="topbar">
+    <h1>📊 Admin Dashboard</h1>
+    <button id="btnLogout">Выход</button>
+  </div>
+
+  <div class="container">
+    <!-- Stats Cards -->
+    <div class="grid">
+      <div class="card">
+        <h3>Активные пользователи</h3>
+        <div class="value" id="statsActiveUsers">-</div>
+        <div class="delta" id="statsActiveUsersChange"></div>
+      </div>
+      <div class="card">
+        <h3>Поездок сегодня</h3>
+        <div class="value" id="statsRidesToday">-</div>
+        <div class="delta" id="statsRidesTodayChange"></div>
+      </div>
+      <div class="card">
+        <h3>Заработок сегодня</h3>
+        <div class="value" id="statsEarningsToday">-</div>
+        <div class="delta" id="statsEarningsTodayChange"></div>
+      </div>
+      <div class="card">
+        <h3>Водителей онлайн</h3>
+        <div class="value" id="statsDriversOnline">-</div>
+        <div class="delta" id="statsDriversOnlineChange"></div>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div id="chartContainer">
+      <h3 style="margin: 0 0 16px;">Поездки за последние 7 дней</h3>
+      <canvas id="ridesChart"></canvas>
+    </div>
+
+    <!-- Recent Rides Table -->
+    <div class="section">
+      <h2>Последние поездки</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Пассажир</th>
+            <th>Водитель</th>
+            <th>Статус</th>
+            <th>Цена</th>
+            <th>Время</th>
+          </tr>
+        </thead>
+        <tbody id="ridesTableBody">
+          <tr><td colspan="6" style="text-align: center; color: #666;">Загрузка...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Online Drivers Table -->
+    <div class="section">
+      <h2>Водители сейчас онлайн</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Имя</th>
+            <th>Статус</th>
+            <th>Поездок</th>
+            <th>Рейтинг</th>
+            <th>Онлайн с</th>
+          </tr>
+        </thead>
+        <tbody id="driversTableBody">
+          <tr><td colspan="5" style="text-align: center; color: #666;">Загрузка...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" style="display: none;"></div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+'use strict';
+
+const state = {
+  serverUrl: localStorage.getItem('yanpro_admin_server') || 'http://localhost:3002',
+  token: localStorage.getItem('yanpro_admin_token') || null,
+  socket: null,
+  stats: {},
+};
+
+const authScreen = document.getElementById('authScreen');
+const dashboard = document.getElementById('dashboard');
+const serverInput = document.getElementById('serverInput');
+const loginInput = document.getElementById('loginInput');
+const passwordInput = document.getElementById('passwordInput');
+const authError = document.getElementById('authError');
+const btnLogin = document.getElementById('btnLogin');
+const btnLogout = document.getElementById('btnLogout');
+
+serverInput.value = state.serverUrl;
+
+btnLogin.onclick = async () => {
+  state.serverUrl = serverInput.value.trim();
+  const login = loginInput.value.trim();
+  const password = passwordInput.value;
+  if (!login || !password) { authError.textContent = 'Заполните поля'; return; }
+
+  try {
+    const res = await fetch(state.serverUrl + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'login failed');
+    if (data.user.role !== 'admin') throw new Error('not_admin');
+    state.token = data.token;
+    localStorage.setItem('yanpro_admin_token', state.token);
+    localStorage.setItem('yanpro_admin_server', state.serverUrl);
+    showDashboard();
+  } catch (e) {
+    authError.textContent = e.message === 'not_admin' ? 'Доступ только администратору' : 'Неверный логин или пароль';
+  }
+};
+
+btnLogout.onclick = () => {
+  state.token = null;
+  localStorage.removeItem('yanpro_admin_token');
+  if (state.socket) state.socket.disconnect();
+  location.reload();
+};
+
+function showDashboard() {
+  authScreen.style.display = 'none';
+  dashboard.style.display = 'block';
+  connectSocket();
+  loadStats();
+  loadRecentRides();
+  loadOnlineDrivers();
+  setInterval(loadStats, 30000);
+}
+
+function connectSocket() {
+  if (state.socket) state.socket.disconnect();
+  state.socket = io(state.serverUrl, { auth: { token: state.token }, reconnection: true });
+  state.socket.on('connect_error', () => toast('Потеря соединения'));
+}
+
+async function loadStats() {
+  try {
+    const res = await fetch(state.serverUrl + '/api/admin/stats', {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (!res.ok) throw new Error('Доступ запрещён');
+    const data = await res.json();
+
+    document.getElementById('statsActiveUsers').textContent = data.activeUsers || '-';
+    document.getElementById('statsRidesToday').textContent = data.ridesToday || '0';
+    document.getElementById('statsEarningsToday').textContent = '₽' + Math.round(data.earningsToday || 0);
+    document.getElementById('statsDriversOnline').textContent = data.driversOnline || '0';
+
+    // Simple delta indicators
+    if (data.earningstodayDelta > 0) {
+      document.getElementById('statsEarningsTodayChange').textContent = '↑ +' + data.earningsTodayDelta.toFixed(0);
+    }
+  } catch (e) {
+    console.error('Stats error:', e);
+  }
+}
+
+async function loadRecentRides() {
+  try {
+    const res = await fetch(state.serverUrl + '/api/admin/recent-rides?limit=10', {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    const data = await res.json();
+    const tbody = document.getElementById('ridesTableBody');
+    if (!data.rides || data.rides.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">Нет данных</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.rides.map((r) => `
+      <tr>
+        <td style="font-family: monospace; font-size: 12px; color: #999;">${r.id.substring(0, 8)}</td>
+        <td>${r.passenger_name || 'N/A'}</td>
+        <td>${r.driver_name || 'N/A'}</td>
+        <td><span class="badge ${r.status === 'completed' ? 'completed' : 'cancelled'}">${r.status === 'completed' ? '✓ Завершена' : '✗ Отменена'}</span></td>
+        <td>${r.price ? '₽' + r.price : '-'}</td>
+        <td style="font-size: 12px; color: #999;">${new Date(r.finished_at).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    console.error('Recent rides error:', e);
+    document.getElementById('ridesTableBody').innerHTML = '<tr><td colspan="6" style="text-align: center; color: #FF5252;">Ошибка загрузки</td></tr>';
+  }
+}
+
+async function loadOnlineDrivers() {
+  try {
+    const res = await fetch(state.serverUrl + '/api/admin/drivers-online', {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    const data = await res.json();
+    const tbody = document.getElementById('driversTableBody');
+    if (!data.drivers || data.drivers.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">Нет водителей онлайн</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.drivers.map((d) => `
+      <tr>
+        <td>${d.name}</td>
+        <td><span class="badge online">● Онлайн</span></td>
+        <td>${d.rides_count || 0}</td>
+        <td>${d.rating ? d.rating.toFixed(2) + '★' : 'N/A'}</td>
+        <td style="font-size: 12px; color: #999;">${new Date(d.online_since).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    console.error('Drivers error:', e);
+    document.getElementById('driversTableBody').innerHTML = '<tr><td colspan="5" style="text-align: center; color: #FF5252;">Ошибка загрузки</td></tr>';
+  }
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3000);
+}
+
+if (state.token) showDashboard();
+</script>
+</body>
+</html>
