@@ -550,7 +550,7 @@ function connectSocket() {
 }
 
 /* ════════════════════════ ВХОДЯЩИЙ ЗАКАЗ / ЗАЯВКА ════════════════════════ */
-const REQUEST_TTL_MS = 15000;
+const REQUEST_TTL_MS = 30000;
 
 function showIncomingRequest(kind, data) {
   state.pendingRequest = { kind, ...data };

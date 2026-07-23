@@ -105,6 +105,8 @@ function setupSockets(io) {
 
         // Ищем ближайших свободных водителей через Redis GEO — не рассылаем всем подряд.
         const nearby = await geo.findNearby('driver', data.pickup.lon, data.pickup.lat, 15, 20);
+        // Запоминаем кому отправили, чтобы потом закрыть только им
+        const notifiedDriverIds = [];
         for (const d of nearby) {
           io.to(userRoom(d.userId)).emit('ride:new_request', {
             rideId: ride.id,
@@ -114,7 +116,10 @@ function setupSockets(io) {
             destination: data.destination,
             destinationAddress: data.destinationAddress,
           });
+          notifiedDriverIds.push(d.userId);
         }
+        // Сохраняем список уведомлённых в ride (для ride:closed_for_others)
+        ride._notifiedDrivers = notifiedDriverIds;
         socket.emit('ride:created', { rideId: ride.id, driversNotified: nearby.length });
       } catch (err) {
         console.error('[ride:request] error', err);
@@ -143,8 +148,17 @@ function setupSockets(io) {
         driverName: name,
       });
 
-      // Остальным водителям, которым тоже показали заявку, нужно её убрать из списка.
-      socket.broadcast.emit('ride:closed_for_others', { rideId: ride.id });
+      // Уведомляем ТОЛЬКО тех водителей, которым отправляли заказ
+      if (ride._notifiedDrivers) {
+        for (const driverId of ride._notifiedDrivers) {
+          if (driverId !== userId) {
+            io.to(userRoom(driverId)).emit('ride:closed_for_others', { rideId: ride.id });
+          }
+        }
+      } else {
+        // Fallback: если список не сохранился (рестарт сервера) — broadcast
+        socket.broadcast.emit('ride:closed_for_others', { rideId: ride.id });
+      }
     });
 
     socket.on('ride:start', async (data) => {
