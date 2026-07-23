@@ -79,6 +79,13 @@ function setupSockets(io) {
       } else {
         await geo.setStatus(role, userId, 'online');
       }
+      // Синхронизируем статус в PostgreSQL для админ-панели
+      try {
+        await db.query(
+          `UPDATE driver_profiles SET status = $1, updated_at = now() WHERE user_id = $2`,
+          [status, userId]
+        );
+      } catch (e) { console.error('[driver:status db]', e.message); }
     });
 
     // ─── Поездка: запрос от пассажира ───────────────────────────────────

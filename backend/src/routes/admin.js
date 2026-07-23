@@ -122,4 +122,21 @@ router.get('/users-stats', requireAuth, requireRole('admin'), async (req, res) =
   }
 });
 
+// Список всех пользователей
+router.get('/users', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const users = await db.query(
+      `SELECT u.id, u.login, u.name, u.role, u.is_active, u.last_activity, u.created_at,
+              dp.vehicle_make, dp.vehicle_plate, dp.status as driver_status, dp.rating, dp.rides_count
+       FROM users u
+       LEFT JOIN driver_profiles dp ON u.id = dp.user_id
+       ORDER BY u.created_at DESC`
+    );
+    res.json({ users: users.rows });
+  } catch (err) {
+    console.error('[admin/users]', err);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 module.exports = router;
