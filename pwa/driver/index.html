@@ -77,6 +77,7 @@
   .passInfo .name{font-weight:700; font-size:16px;}
   .passInfo .role{font-size:12px; color:var(--muted);}
   .sheetAddr{font-size:13px; color:#CCC; padding:8px 0; border-top:1px solid #333;}
+  .sheetRoute{background:var(--card2); border-radius:10px; padding:10px 14px; margin:8px 0; font-size:14px; font-weight:600; color:var(--yellow); text-align:center;}
   .actionsRow{display:flex; gap:10px; margin-top:10px;}
   .actionsRow button{flex:1; padding:14px; border-radius:12px; font-size:14px; font-weight:700;}
   .btnYellow{background:var(--yellow); color:#111;}
@@ -107,6 +108,16 @@
 
   #toast{position:fixed; left:50%; bottom:110px; transform:translateX(-50%); background:#000; color:#fff; padding:10px 18px; border-radius:22px; font-size:13px; z-index:80; opacity:0; transition:opacity .25s; pointer-events:none; box-shadow:var(--shadow);}
   #toast.show{opacity:1;}
+
+  /* ── Модалка ввода цены ──────────────────────────────── */
+  #priceOverlay{position:fixed; inset:0; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; z-index:90;}
+  #priceCard{background:var(--card); border-radius:18px; padding:24px; width:90%; max-width:340px; text-align:center; box-shadow:var(--shadow);}
+  #priceCard h3{color:var(--yellow); margin:0 0 6px; font-size:20px;}
+  #priceCard .routeInfo{color:var(--muted); font-size:13px; margin-bottom:16px;}
+  #priceCard input{width:100%; padding:16px; border:2px solid var(--yellow); border-radius:12px; background:var(--card2); color:var(--text); font-size:28px; font-weight:700; text-align:center; margin-bottom:12px;}
+  #priceCard .priceHint{font-size:12px; color:var(--muted); margin-bottom:16px;}
+  #priceCard .priceActions{display:flex; gap:10px;}
+  #priceCard .priceActions button{flex:1; padding:14px; border-radius:12px; font-size:16px; font-weight:700;}
 
   .selfMarker{width:36px; height:36px; border-radius:50%; background:var(--yellow); border:3px solid #fff; box-shadow:var(--shadow); display:flex; align-items:center; justify-content:center; font-size:16px;}
   .passMarker{width:30px; height:30px; border-radius:50%; background:#fff; box-shadow:var(--shadow); display:flex; align-items:center; justify-content:center; font-size:15px;}
@@ -162,6 +173,20 @@
 <div id="requestCard" class="hidden"></div>
 <div id="sheet" class="hidden"></div>
 <div id="toast"></div>
+
+<!-- ═══════════════ МОДАЛКА ЦЕНЫ ═══════════════ -->
+<div id="priceOverlay" class="hidden">
+  <div id="priceCard">
+    <h3>Стоимость поездки</h3>
+    <div class="routeInfo" id="priceRouteInfo"></div>
+    <input id="priceInput" type="number" inputmode="decimal" placeholder="0" autofocus>
+    <div class="priceHint" id="priceHint"></div>
+    <div class="priceActions">
+      <button class="btnDanger" id="priceCancel" style="background:var(--card2); color:var(--text);">Отмена</button>
+      <button class="btnYellow" id="priceConfirm" style="background:var(--yellow); color:#111;">Завершить</button>
+    </div>
+  </div>
+</div>
 
 <!-- ═══════════════ ЧАТ ═══════════════ -->
 <div id="chatOverlay" class="hidden">
@@ -292,6 +317,28 @@ function startApp() {
 if (state.token && state.user) startApp();
 
 /* ════════════════════════ МАРШРУТЫ ════════════════════════ */
+const OSRM_URL = state.serverUrl.replace(/\/$/, '') + '/api/route';
+
+async function fetchRoute(lat1, lon1, lat2, lon2) {
+  try {
+    const res = await fetch(OSRM_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startLat: lat1, startLon: lon1, endLat: lat2, endLon: lon2 }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+function formatDistance(meters) {
+  return meters >= 1000 ? (meters / 1000).toFixed(1) + ' км' : Math.round(meters) + ' м';
+}
+function formatDuration(seconds) {
+  const m = Math.round(seconds / 60);
+  return m >= 60 ? Math.floor(m / 60) + ' ч ' + (m % 60) + ' мин' : m + ' мин';
+}
+
 function drawRouteOnMap(geometry) {
   if (!state.map || !state.map.isStyleLoaded()) return;
   if (state.map.getSource('route-line')) {
@@ -447,8 +494,11 @@ function connectSocket() {
   state.socket.on('session:restore_ride', (ride) => {
     state.activeRide = { id: ride.id, status: ride.status, name: ride.passenger_name || 'Пассажир',
       pickup: { lat: ride.pickup_lat, lon: ride.pickup_lon, address: ride.pickup_address },
-      destination: { lat: ride.destination_lat, lon: ride.destination_lon, address: ride.destination_address } };
+      destination: { lat: ride.destination_lat, lon: ride.destination_lon, address: ride.destination_address },
+      routeToPickup: null, routeToDest: null };
     renderActiveRide();
+    if (ride.status === 'accepted') drawRouteToPickup();
+    else if (ride.status === 'in_progress') drawRouteToDestination();
   });
   state.socket.on('session:restore_assist', (a) => {
     state.activeAssist = { id: a.id, status: a.status, carMake: a.car_make, breakdownType: a.breakdown_type,
@@ -475,7 +525,7 @@ function connectSocket() {
     // Наш собственный accept подтверждён сервером
     if (state.activeRide) { state.activeRide.status = 'accepted'; renderActiveRide(); }
   });
-  state.socket.on('ride:started', () => { if (state.activeRide) { state.activeRide.status = 'in_progress'; renderActiveRide(); } });
+  state.socket.on('ride:started', () => { if (state.activeRide) { state.activeRide.status = 'in_progress'; drawRouteToDestination(); } });
   state.socket.on('ride:finished', () => { toast('Поездка завершена'); fetchEarnings(); resetRide(); });
   state.socket.on('ride:cancelled', (data) => { toast(data.by === 'passenger' ? 'Пассажир отменил поездку' : 'Поездка отменена'); resetRide(); });
   state.socket.on('ride:passenger_location', (data) => placeMarker('passenger', data.lat, data.lon, '🧍'));
@@ -561,11 +611,13 @@ function acceptIncomingRequest() {
       id: req.rideId, status: 'accepted', name: req.passengerName,
       pickup: { ...req.pickup, address: req.pickupAddress },
       destination: { ...req.destination, address: req.destinationAddress },
+      routeToPickup: null, routeToDest: null,
     };
     state.chatContext = { contextType: 'ride', contextId: req.rideId };
     placeMarker('passenger', req.pickup.lat, req.pickup.lon, '🧍');
     state.map.flyTo({ center: [req.pickup.lon, req.pickup.lat], zoom: 15 });
     renderActiveRide();
+    drawRouteToPickup();
   } else {
     state.socket.emit('assistance:accept', { assistId: req.assistId });
     state.activeAssist = { id: req.assistId, status: 'accepted', name: req.passengerName,
@@ -592,6 +644,30 @@ function playBeep() {
 /* ════════════════════════ НИЖНИЙ ЛИСТ АКТИВНОГО ЗАКАЗА ════════════════════════ */
 const sheet = document.getElementById('sheet');
 
+async function drawRouteToPickup() {
+  const r = state.activeRide;
+  if (!r) return;
+  const selfPos = state.markers.self?.getLngLat();
+  if (!selfPos) return;
+  const route = await fetchRoute(selfPos.lat, selfPos.lng, r.pickup.lat, r.pickup.lon);
+  if (!route || !state.activeRide || state.activeRide.id !== r.id) return;
+  r.routeToPickup = route;
+  drawRouteOnMap(route.geometry);
+  renderActiveRide();
+}
+
+async function drawRouteToDestination() {
+  const r = state.activeRide;
+  if (!r || !r.destination) return;
+  const selfPos = state.markers.self?.getLngLat();
+  if (!selfPos) return;
+  const route = await fetchRoute(selfPos.lat, selfPos.lng, r.destination.lat, r.destination.lon);
+  if (!route || !state.activeRide || state.activeRide.id !== r.id) return;
+  r.routeToDest = route;
+  drawRouteOnMap(route.geometry);
+  renderActiveRide();
+}
+
 function renderActiveRide() {
   const r = state.activeRide;
   if (!r) { sheet.classList.add('hidden'); return; }
@@ -600,6 +676,14 @@ function renderActiveRide() {
   const primaryBtn = r.status === 'accepted'
     ? `<button class="btnYellow" id="btnPrimary">Начать поездку</button>`
     : `<button class="btnYellow" id="btnPrimary">Завершить поездку</button>`;
+
+  let routeInfo = '';
+  if (r.status === 'accepted' && r.routeToPickup) {
+    routeInfo = `<div class="sheetRoute">🚗 ${formatDistance(r.routeToPickup.distance)} · ${formatDuration(r.routeToPickup.duration)}</div>`;
+  } else if (r.status === 'in_progress' && r.routeToDest) {
+    routeInfo = `<div class="sheetRoute">🏁 ${formatDistance(r.routeToDest.distance)} · ${formatDuration(r.routeToDest.duration)}</div>`;
+  }
+
   sheet.innerHTML = `
     <div class="dragHandle"></div>
     <div class="passRow">
@@ -608,6 +692,7 @@ function renderActiveRide() {
     </div>
     <div class="sheetAddr">📍 ${r.pickup.address || ''}</div>
     <div class="sheetAddr">🏁 ${r.destination.address || ''}</div>
+    ${routeInfo}
     <div class="actionsRow">
       <button class="btnGray" id="btnChat">💬 Чат</button>
       ${primaryBtn}
@@ -619,10 +704,12 @@ function renderActiveRide() {
   document.getElementById('btnChat').onclick = openChat;
   document.getElementById('btnCancel').onclick = () => { state.socket.emit('ride:cancel', { rideId: r.id, reason: 'driver_cancel' }); resetRide(); };
   document.getElementById('btnPrimary').onclick = () => {
-    if (r.status === 'accepted') { state.socket.emit('ride:start', { rideId: r.id }); }
-    else {
-      const price = prompt('Итоговая стоимость поездки, ₽', '');
-      state.socket.emit('ride:finish', { rideId: r.id, price: price ? parseFloat(price) : undefined });
+    if (r.status === 'accepted') {
+      state.socket.emit('ride:start', { rideId: r.id });
+      state.activeRide.status = 'in_progress';
+      drawRouteToDestination();
+    } else {
+      showPriceModal();
     }
   };
 }
@@ -689,6 +776,36 @@ function appendChatMessage(m) {
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 }
+
+/* ════════════════════════ МОДАЛКА ЦЕНЫ ════════════════════════ */
+function showPriceModal() {
+  const r = state.activeRide;
+  if (!r) return;
+  const overlay = document.getElementById('priceOverlay');
+  overlay.classList.remove('hidden');
+  const info = document.getElementById('priceRouteInfo');
+  const hint = document.getElementById('priceHint');
+  if (r.routeToDest) {
+    info.textContent = `${formatDistance(r.routeToDest.distance)} · ${formatDuration(r.routeToDest.duration)}`;
+    const km = r.routeToDest.distance / 1000;
+    const suggested = Math.round(50 + km * 20 + r.routeToDest.duration / 60 * 1.5);
+    hint.textContent = `≈ ${suggested} ₽ (базовая тарифация)`;
+    document.getElementById('priceInput').value = suggested;
+  } else {
+    info.textContent = '';
+    hint.textContent = '';
+    document.getElementById('priceInput').value = '';
+  }
+  document.getElementById('priceInput').focus();
+}
+document.getElementById('priceConfirm').onclick = () => {
+  const price = parseFloat(document.getElementById('priceInput').value);
+  document.getElementById('priceOverlay').classList.add('hidden');
+  state.socket.emit('ride:finish', { rideId: state.activeRide?.id, price: price || undefined });
+};
+document.getElementById('priceCancel').onclick = () => {
+  document.getElementById('priceOverlay').classList.add('hidden');
+};
 
 /* ════════════════════════ ВЫХОД ════════════════════════ */
 function logout() {
