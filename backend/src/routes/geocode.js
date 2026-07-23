@@ -5,10 +5,20 @@ const router = express.Router();
 const cache = new Map();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
+// Rate limiter для Nominatim (макс 1 запрос/сек)
+let lastRequestTime = 0;
+async function rateLimitedFetch(url, opts) {
+  const now = Date.now();
+  const wait = Math.max(0, 1100 - (now - lastRequestTime));
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastRequestTime = Date.now();
+  return fetch(url, opts);
+}
+
 // Ограничиваем поиск районом Оренбургской области, чтобы не ловить мусорные результаты
 // с другого конца света по совпадению названия улицы.
 const VIEWBOX = '53.0,53.5,57.5,50.5'; // lon1,lat1,lon2,lat2 — грубый прямоугольник вокруг области
-const USER_AGENT = 'YanPro/1.0 (taxi dispatch app; contact: set-your-email@example.com)';
+const USER_AGENT = 'YanProTaxi/1.0 (https://taxi.fbs3.ru; admin@fbs3.ru)';
 
 function getCached(key) {
   const hit = cache.get(key);
@@ -29,7 +39,7 @@ router.get('/', async (req, res) => {
     const url = `https://nominatim.openstreetmap.org/search?` + new URLSearchParams({
       q, format: 'jsonv2', limit: '6', 'accept-language': 'ru', viewbox: VIEWBOX, bounded: '1',
     });
-    const r = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    const r = await rateLimitedFetch(url, { headers: { 'User-Agent': USER_AGENT } });
     if (!r.ok) throw new Error(`nominatim_${r.status}`);
     const data = await r.json();
     const results = data.map((item) => ({
@@ -58,7 +68,7 @@ router.get('/reverse', async (req, res) => {
     const url = `https://nominatim.openstreetmap.org/reverse?` + new URLSearchParams({
       lat: String(lat), lon: String(lon), format: 'jsonv2', 'accept-language': 'ru',
     });
-    const r = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    const r = await rateLimitedFetch(url, { headers: { 'User-Agent': USER_AGENT } });
     if (!r.ok) throw new Error(`nominatim_${r.status}`);
     const data = await r.json();
     const result = { address: data.display_name || `${lat.toFixed(5)}, ${lon.toFixed(5)}` };
