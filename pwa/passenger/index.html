@@ -152,7 +152,7 @@
 /* ════════════════════════ КОНФИГ / СОСТОЯНИЕ ════════════════════════ */
 const ORENBURG = { lat: 51.7727, lon: 55.0988 };
 const state = {
-  serverUrl: localStorage.getItem('yanpro_server_url') || 'https://your-server.example',
+  serverUrl: localStorage.getItem('yanpro_server_url') || window.location.origin,
   token: localStorage.getItem('yanpro_token') || null,
   user: JSON.parse(localStorage.getItem('yanpro_user') || 'null'),
   socket: null,
