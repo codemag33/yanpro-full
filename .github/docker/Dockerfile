@@ -8,12 +8,13 @@ COPY backend/src ./src
 COPY backend/db ./db
 COPY backend/.env.example .env
 
-# Копируем PWA клиентов для раздачи
-RUN mkdir -p passenger driver
+# Копируем PWA клиентов и админку для раздачи
+RUN mkdir -p passenger driver admin
 COPY pwa/passenger/index.html passenger/
 COPY pwa/passenger/manifest.json passenger/
 COPY pwa/driver/index.html driver/
 COPY pwa/driver/manifest.json driver/
+COPY admin/ admin/
 
 # Установка зависимостей
 RUN npm install --omit=dev && npm cache clean --force
