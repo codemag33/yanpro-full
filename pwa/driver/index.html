@@ -317,7 +317,7 @@ function startApp() {
 if (state.token && state.user) startApp();
 
 /* ════════════════════════ МАРШРУТЫ ════════════════════════ */
-const OSRM_URL = state.serverUrl.replace(/\/$/, '') + '/api/route';
+const OSRM_URL = state.serverUrl.replace(/\/$/, '') + '/api/routing/route';
 
 async function fetchRoute(lat1, lon1, lat2, lon2) {
   try {
