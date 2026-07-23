@@ -7,7 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * REST-клиент для /api/auth/* нового бэкенда.
+ * REST-клиент для /api/auth/ нового бэкенда.
  * Пароль никогда не сравнивается на клиенте — только пересылается по HTTPS на сервер,
  * который хеширует и проверяет его сам (см. src/routes/auth.js).
  */
