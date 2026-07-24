@@ -148,6 +148,9 @@ class HistoryActivity : AppCompatActivity() {
                 date?.let { outputFmt.format(it) } ?: ""
             } catch (e: Exception) { "" }
 
+            val clientName = obj.optString("passenger_name", "")
+            val clientPhone = obj.optString("passenger_phone", "")
+
             items.add(
                 HistoryItem(
                     type = type,
@@ -155,7 +158,9 @@ class HistoryActivity : AppCompatActivity() {
                     price = if (price >= 0) "${price.toInt()} \u20BD" else "",
                     pickupAddress = pickup,
                     destAddress = dest,
-                    date = dateStr
+                    date = dateStr,
+                    clientName = clientName,
+                    clientPhone = clientPhone
                 )
             )
         }
@@ -170,7 +175,9 @@ class HistoryActivity : AppCompatActivity() {
         val price: String,
         val pickupAddress: String,
         val destAddress: String,
-        val date: String
+        val date: String,
+        val clientName: String,
+        val clientPhone: String
     )
 
     // ─── Adapter ────────────────────────────────────────────────────────────
@@ -188,6 +195,9 @@ class HistoryActivity : AppCompatActivity() {
             val ivType: ImageView = view.findViewById(R.id.ivType)
             val tvType: TextView = view.findViewById(R.id.tvType)
             val tvDate: TextView = view.findViewById(R.id.tvDate)
+            val clientInfoRow: View = view.findViewById(R.id.clientInfoRow)
+            val tvClientName: TextView = view.findViewById(R.id.tvClientName)
+            val tvClientPhone: TextView = view.findViewById(R.id.tvClientPhone)
             val tvPickup: TextView = view.findViewById(R.id.tvPickup)
             val tvDest: TextView = view.findViewById(R.id.tvDest)
             val tvStatus: TextView = view.findViewById(R.id.tvStatus)
@@ -214,6 +224,27 @@ class HistoryActivity : AppCompatActivity() {
             }
 
             holder.tvDate.text = item.date
+
+            if (item.clientName.isNotEmpty() || item.clientPhone.isNotEmpty()) {
+                holder.clientInfoRow.visibility = View.VISIBLE
+                holder.tvClientName.text = item.clientName.ifEmpty { "\u2014" }
+                if (item.clientPhone.isNotEmpty()) {
+                    holder.tvClientPhone.text = item.clientPhone
+                    holder.tvClientPhone.visibility = View.VISIBLE
+                    holder.tvClientPhone.setOnClickListener {
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_DIAL,
+                            android.net.Uri.parse("tel:${item.clientPhone}")
+                        )
+                        holder.itemView.context.startActivity(intent)
+                    }
+                } else {
+                    holder.tvClientPhone.visibility = View.GONE
+                }
+            } else {
+                holder.clientInfoRow.visibility = View.GONE
+            }
+
             holder.tvPickup.text = item.pickupAddress.ifEmpty { "\u2014" }
             holder.tvDest.text = item.destAddress.ifEmpty { "\u2014" }
 

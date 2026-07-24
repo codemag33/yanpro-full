@@ -34,15 +34,19 @@ router.get('/stats/today', requireAuth, requireRole('driver', 'mechanic'), async
 router.get('/history', requireAuth, requireRole('driver', 'mechanic'), async (req, res) => {
   try {
     const rides = await db.query(
-      `SELECT id, 'ride' as type, status, price, pickup_address, destination_address,
-              created_at, finished_at, cancel_reason
-       FROM rides
-       WHERE driver_id = $1 AND status IN ('completed', 'cancelled')
+      `SELECT id, 'ride' as type, status, price,
+              r.pickup_address, r.destination_address,
+              r.created_at, r.finished_at, r.cancel_reason,
+              u.name as passenger_name, u.phone as passenger_phone
+       FROM rides r
+       LEFT JOIN users u ON u.id = r.passenger_id
+       WHERE r.driver_id = $1 AND r.status IN ('completed', 'cancelled')
        UNION ALL
        SELECT id, 'assistance' as type, status, NULL as price,
               car_make || ' — ' || COALESCE(breakdown_type, '') as pickup_address,
               description as destination_address,
-              created_at, finished_at, NULL as cancel_reason
+              created_at, finished_at, NULL as cancel_reason,
+              NULL as passenger_name, phone as passenger_phone
        FROM assistance_requests
        WHERE mechanic_id = $1 AND status IN ('completed', 'cancelled')
        ORDER BY finished_at DESC LIMIT 50`,

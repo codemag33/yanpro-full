@@ -82,6 +82,38 @@
                     tools:text="24 июля, 14:30" />
             </LinearLayout>
 
+            <!-- Client name + phone -->
+            <LinearLayout
+                android:id="@+id/clientInfoRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvClientName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/uber_text_primary"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    tools:text="Иван Иванов" />
+
+                <TextView
+                    android:id="@+id/tvClientPhone"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:textColor="@color/uber_blue"
+                    android:textSize="13sp"
+                    android:drawablePadding="4dp"
+                    tools:text="+7 999 123-45-67" />
+            </LinearLayout>
+
             <!-- Addresses -->
             <TextView
                 android:id="@+id/tvPickup"

@@ -41,14 +41,16 @@ async function cancelRide(rideId, reason) {
 // Общий SELECT, который разворачивает geography-колонки в обычные числа lat/lon —
 // иначе клиенту (Android/PWA) пришёл бы нечитаемый бинарный EWKB вместо координат.
 const RIDE_SELECT = `
-  SELECT id, passenger_id, driver_id, status, price, price_offer,
-         ST_Y(pickup::geometry) AS pickup_lat, ST_X(pickup::geometry) AS pickup_lon, pickup_address,
-         ST_Y(destination::geometry) AS destination_lat, ST_X(destination::geometry) AS destination_lon,
-         destination_address, created_at, accepted_at, started_at, finished_at
-  FROM rides`;
+  SELECT r.id, r.passenger_id, r.driver_id, r.status, r.price, r.price_offer,
+         ST_Y(r.pickup::geometry) AS pickup_lat, ST_X(r.pickup::geometry) AS pickup_lon, r.pickup_address,
+         ST_Y(r.destination::geometry) AS destination_lat, ST_X(r.destination::geometry) AS destination_lon,
+         r.destination_address, r.created_at, r.accepted_at, r.started_at, r.finished_at,
+         u.name AS passenger_name, u.phone AS passenger_phone
+  FROM rides r
+  LEFT JOIN users u ON u.id = r.passenger_id`;
 
 async function getRide(rideId) {
-  const result = await db.query(`${RIDE_SELECT} WHERE id = $1`, [rideId]);
+  const result = await db.query(`${RIDE_SELECT} WHERE r.id = $1`, [rideId]);
   return result.rows[0] || null;
 }
 
@@ -56,9 +58,9 @@ async function getRide(rideId) {
 async function findActiveRideForUser(userId) {
   const result = await db.query(
     `${RIDE_SELECT}
-     WHERE (passenger_id = $1 OR driver_id = $1)
-       AND status IN ('searching', 'accepted', 'in_progress')
-     ORDER BY created_at DESC LIMIT 1`,
+     WHERE (r.passenger_id = $1 OR r.driver_id = $1)
+       AND r.status IN ('searching', 'accepted', 'in_progress')
+     ORDER BY r.created_at DESC LIMIT 1`,
     [userId]
   );
   return result.rows[0] || null;
