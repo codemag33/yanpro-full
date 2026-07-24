@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Yan.Pro — Пассажир v2.3</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0F9D58">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+:root{--g:#0F9D58;--bg:#F4F6F5;--card:#FFF;--text:#1B1F1D;--m:#6B7570;--d:#E24C4B;--r:16px}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;font:14px -apple-system,Roboto,sans-serif;background:var(--bg);color:var(--text)}
+#map{position:absolute;inset:0}
+
+#connection-status{position:fixed;top:0;left:0;right:0;padding:12px;text-align:center;z-index:50;font-weight:700;font-size:12px;transition:all .3s}
+#connection-status.online{background:#D4EDDA;color:#155724;display:none}
+#connection-status.offline{background:#F8D7DA;color:#721C24;display:block}
+#connection-status.connecting{background:#FFF3CD;color:#856404;display:block}
+
+.logout-button{position:fixed;top:16px;right:16px;background:var(--d);color:#fff;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:700;z-index:20}
+.logout-button:hover{opacity:.9}
+
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;flex-direction:column;justify-content:center;align-items:center;z-index:100;padding:20px}
+.modal.show{display:flex}
+.modal-content{background:var(--card);border-radius:var(--r);padding:24px;width:100%;max-width:420px;max-height:90vh;overflow-y:auto}
+
+.loading{text-align:center;padding:20px}
+.spinner{border:3px solid #f3f3f3;border-top:3px solid var(--g);border-radius:50%;width:30px;height:30px;animation:spin .8s linear infinite;margin:0 auto}
+@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+
+.error-box{background:#FFE6E6;border:1px solid var(--d);border-radius:8px;padding:12px;margin:12px 0;color:var(--d);font-size:13px}
+.success-box{background:#E6F5ED;border:1px solid var(--g);border-radius:8px;padding:12px;margin:12px 0;color:var(--g);font-size:13px}
+
+button{font-family:inherit;border:none;border-radius:10px;padding:12px 16px;cursor:pointer;font-weight:700}
+.btn-primary{background:var(--g);color:#fff}
+.btn-gray{background:#F0F0F0;color:var(--text)}
+.btn-danger{background:var(--d);color:#fff}
+
+.toast{position:fixed;bottom:20px;right:20px;background:#000;color:#fff;padding:12px 18px;border-radius:24px;z-index:200;opacity:0;transition:opacity .2s}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<div id="connection-status" class="online">✅ Подключено</div>
+<button class="logout-button" onclick="logout()">Выход</button>
+
+<div id="map"></div>
+
+<!-- МОДАЛЬНОЕ ОКНО ОШИБОК -->
+<div id="errorModal" class="modal">
+  <div class="modal-content">
+    <h2>⚠️ Ошибка подключения</h2>
+    <div id="error-message" class="error-box"></div>
+    <div class="loading">
+      <div class="spinner"></div>
+      <p style="margin-top:12px;color:var(--m)">Переподключение...</p>
+    </div>
+    <button class="btn-primary" style="width:100%;margin-top:16px" onclick="location.reload()">Обновить страницу</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+const state = {
+  serverUrl: localStorage.getItem('yanpro_server') || 'http://localhost:3002',
+  token: localStorage.getItem('yanpro_token'),
+  user: JSON.parse(localStorage.getItem('yanpro_user') || '{}'),
+  socket: null,
+  map: null,
+  isConnected: true
+};
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ════════════════════ CONNECTION STATUS ════════════════════
+function updateConnectionStatus(status) {
+  const elem = document.getElementById('connection-status');
+  
+  if (status === 'online') {
+    elem.textContent = '✅ Подключено';
+    elem.className = 'online';
+    document.getElementById('errorModal').classList.remove('show');
+    state.isConnected = true;
+  } else if (status === 'connecting') {
+    elem.textContent = '⏳ Переподключение...';
+    elem.className = 'connecting';
+    state.isConnected = false;
+  } else if (status === 'offline') {
+    elem.textContent = '📴 Нет соединения';
+    elem.className = 'offline';
+    document.getElementById('errorModal').classList.add('show');
+    document.getElementById('error-message').textContent = 'Проверьте соединение с интернетом и подождите переподключения...';
+    state.isConnected = false;
+  }
+}
+
+// ════════════════════ LOGOUT ════════════════════
+function logout() {
+  if (!confirm('Вы уверены? Вы выйдете из приложения')) return;
+  
+  // Отключаем сокет
+  if (state.socket) {
+    state.socket.disconnect();
+    state.socket = null;
+  }
+  
+  // Очищаем localStorage правильно
+  const keysToRemove = ['yanpro_token', 'yanpro_user', 'yanpro_theme'];
+  keysToRemove.forEach(key => {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.warn('Не удалось удалить ' + key);
+    }
+  });
+  
+  // Также очищаем sessionStorage
+  try {
+    sessionStorage.clear();
+  } catch (e) {
+    console.warn('sessionStorage не доступен');
+  }
+  
+  toast('✓ Вы вышли из приложения');
+  
+  // Задержка перед редиректом
+  setTimeout(() => {
+    window.location.href = '/passenger?logout=true';
+  }, 1000);
+}
+
+// ════════════════════ КАРТА ════════════════════
+function initMap() {
+  state.map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://tiles.openfreemap.org/styles/liberty',
+    center: [55.0988, 51.7727],
+    zoom: 13
+  });
+  
+  // Слушаем ошибки карты
+  state.map.on('error', (err) => {
+    console.error('Map error:', err);
+    toast('❌ Ошибка карты');
+  });
+}
+
+// ════════════════════ GEOLOCATION ════════════════════
+function requestGeolocation() {
+  if (!navigator.geolocation) {
+    toast('❌ Геолокация не поддерживается');
+    return;
+  }
+  
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      console.log('📍 Геолокация получена:', pos.coords);
+      toast('✓ Геолокация получена');
+    },
+    (err) => {
+      console.warn('Геолокация недоступна:', err.message);
+      
+      if (err.code === 1) {
+        toast('⚠️ Вы отклонили доступ к геолокации');
+      } else if (err.code === 2) {
+        toast('❌ Геолокация недоступна');
+      } else {
+        toast('⚠️ Ошибка геолокации: ' + err.message);
+      }
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 30000
+    }
+  );
+}
+
+// ════════════════════ SOCKET.IO С RETRY ════════════════════
+function connectSocket() {
+  if (state.socket) state.socket.disconnect();
+  
+  updateConnectionStatus('connecting');
+  
+  state.socket = io(state.serverUrl, {
+    auth: { token: state.token },
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    reconnectionAttempts: 5
+  });
+  
+  state.socket.on('connect', () => {
+    console.log('✅ Socket подключен');
+    updateConnectionStatus('online');
+    toast('✓ Переподключено');
+  });
+  
+  state.socket.on('connect_error', (error) => {
+    console.error('Socket error:', error);
+    updateConnectionStatus('connecting');
+  });
+  
+  state.socket.on('disconnect', (reason) => {
+    console.warn('Socket disconnected:', reason);
+    updateConnectionStatus('offline');
+  });
+  
+  // Слушаем события
+  state.socket.on('ride:accepted', (data) => {
+    console.log('✅ Водитель принял заказ');
+    toast('✓ Водитель принял заказ!');
+  });
+  
+  state.socket.on('ride:finished', (data) => {
+    console.log('✅ Поездка завершена');
+    toast('✓ Поездка завершена');
+  });
+}
+
+// ════════════════════ ONLINE/OFFLINE EVENTS ════════════════════
+window.addEventListener('online', () => {
+  console.log('📡 Интернет восстановлен');
+  updateConnectionStatus('connecting');
+  connectSocket();
+});
+
+window.addEventListener('offline', () => {
+  console.log('📴 Интернет потерян');
+  updateConnectionStatus('offline');
+});
+
+// ════════════════════ ИНИЦИАЛИЗАЦИЯ ════════════════════
+if (!state.token) {
+  window.location.href = '/passenger?redirect=auth';
+} else {
+  updateConnectionStatus(navigator.onLine ? 'online' : 'offline');
+  initMap();
+  requestGeolocation();
+  connectSocket();
+}
+</script>
+</body>
+</html>

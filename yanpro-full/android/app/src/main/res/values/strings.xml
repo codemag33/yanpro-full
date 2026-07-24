@@ -121,18 +121,4 @@
     <string name="dest_label_format">%1$s: назначение</string>
     <string name="error_unknown">неизвестная ошибка</string>
     <string name="error_invalid_server_address">Некорректный адрес сервера: %1$s</string>
-
-    <!-- ─── History ────────────────────────────────────────────────────────── -->
-    <string name="history_title">История заказов</string>
-    <string name="history_back">Назад</string>
-    <string name="history_count">%1$d заказов</string>
-    <string name="history_empty">Пока нет заказов</string>
-    <string name="history_type_ride">Заказ</string>
-    <string name="history_type_assistance">Помощь</string>
-    <string name="history_filter_all">Все</string>
-    <string name="history_filter_rides">Заказы</string>
-    <string name="history_filter_assists">Помощь</string>
-    <string name="history_status_completed">Выполнен</string>
-    <string name="history_status_cancelled">Отменён</string>
-    <string name="history_btn">История</string>
 </resources>

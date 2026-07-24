@@ -115,17 +115,6 @@
 
         <!-- Settings button -->
         <ImageButton
-            android:id="@+id/btnHistory"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/history_btn"
-            android:src="@drawable/ic_history"
-            android:scaleType="centerInside"
-            android:padding="6dp"
-            app:tint="@color/uber_text_secondary" />
-
-        <ImageButton
             android:id="@+id/btnSettings"
             android:layout_width="36dp"
             android:layout_height="36dp"

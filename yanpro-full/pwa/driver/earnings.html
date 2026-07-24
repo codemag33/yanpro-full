@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yan.Pro — Заработки</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3/dist/chart.min.js"></script>
+<style>
+:root{--y:#FFCC00;--bg:#141414;--card:#1F1F1F;--text:#FFF;--muted:#999}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font:14px -apple-system,Roboto,sans-serif;background:var(--bg);color:var(--text)}
+#app{padding:20px;max-width:800px;margin:0 auto}
+.header{margin-bottom:24px}
+.header h1{font-size:24px;margin-bottom:8px}
+.header-date{font-size:12px;color:var(--muted)}
+
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px}
+.stat-card{background:var(--card);padding:16px;border-radius:12px;border:1px solid #333}
+.stat-value{font-size:22px;font-weight:700;color:var(--y);margin-bottom:4px}
+.stat-label{font-size:12px;color:var(--muted);text-transform:uppercase}
+
+.card{background:var(--card);border-radius:12px;padding:16px;margin-bottom:16px;border:1px solid #333}
+.card h3{font-size:14px;font-weight:700;margin-bottom:12px}
+
+table{width:100%;border-collapse:collapse}
+th{background:#222;padding:10px;text-align:left;font-size:12px;font-weight:700;border-bottom:1px solid #333;text-transform:uppercase}
+td{padding:10px;border-bottom:1px solid #222;font-size:13px}
+tr:hover{background:#1A1A1A}
+
+.ride-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #222}
+.ride-info{flex:1}
+.ride-price{font-size:16px;font-weight:700;color:var(--y)}
+.ride-address{font-size:12px;color:var(--muted);margin-top:4px}
+
+button{background:var(--y);color:#000;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:700;margin-top:12px}
+button:hover{opacity:.9}
+
+.back-btn{background:#333;color:var(--text);float:left;margin-bottom:16px;padding:8px 12px;font-size:12px}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <button class="back-btn" onclick="window.history.back()">← Назад</button>
+  
+  <div class="header">
+    <h1>💰 Ваши заработки</h1>
+    <div class="header-date" id="header-date">--</div>
+  </div>
+  
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-value" id="today-earnings">0</div>
+      <div class="stat-label">Сегодня (₽)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="today-rides">0</div>
+      <div class="stat-label">Поездок</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="avg-ride">0</div>
+      <div class="stat-label">Средняя (₽)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="rating">0</div>
+      <div class="stat-label">Рейтинг ⭐</div>
+    </div>
+  </div>
+  
+  <div class="card">
+    <h3>📈 Поездки за сегодня</h3>
+    <table>
+      <thead>
+        <tr><th>Время</th><th>От</th><th>До</th><th>Цена</th></tr>
+      </thead>
+      <tbody id="rides-table">
+        <tr><td colspan="4" style="text-align:center;color:var(--muted)">Нет поездок</td></tr>
+      </tbody>
+    </table>
+  </div>
+  
+  <div class="card">
+    <h3>📊 График заработков (7 дней)</h3>
+    <canvas id="earningsChart"></canvas>
+  </div>
+</div>
+
+<script>
+const serverUrl=localStorage.getItem('yanpro_server')||'http://localhost:3002';
+const token=localStorage.getItem('yanpro_token');
+
+async function loadStats(){
+  try{
+    const res=await fetch(serverUrl+'/api/driver/stats/today',{
+      headers:{'Authorization':'Bearer '+token}
+    });
+    const data=await res.json();
+    
+    document.getElementById('today-earnings').textContent=data.earningsToday||0;
+    document.getElementById('today-rides').textContent=data.ridesToday||0;
+    document.getElementById('avg-ride').textContent=data.ridesToday>0?Math.round(data.earningsToday/data.ridesToday):0;
+    document.getElementById('rating').textContent=data.driverRating?.toFixed(1)||'--';
+  }catch(e){
+    console.error('Error loading stats',e);
+  }
+}
+
+async function loadRides(){
+  try{
+    const res=await fetch(serverUrl+'/api/driver/history',{
+      headers:{'Authorization':'Bearer '+token}
+    });
+    const data=await res.json();
+    
+    if(!data.rides||data.rides.length===0){
+      document.getElementById('rides-table').innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--muted)">Нет поездок</td></tr>';
+      return;
+    }
+    
+    document.getElementById('rides-table').innerHTML=data.rides.slice(0,10).map(r=>`
+      <tr>
+        <td>${new Date(r.finished_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</td>
+        <td style="color:var(--muted);font-size:11px">${r.pickup_address?.substring(0,20)||'--'}</td>
+        <td style="color:var(--muted);font-size:11px">${r.destination_address?.substring(0,20)||'--'}</td>
+        <td style="color:var(--y);font-weight:700">₽${r.price}</td>
+      </tr>
+    `).join('');
+  }catch(e){
+    console.error('Error loading rides',e);
+  }
+}
+
+async function loadChart(){
+  try{
+    const res=await fetch(serverUrl+'/api/admin/rides-history?days=7',{
+      headers:{'Authorization':'Bearer '+token}
+    });
+    const data=await res.json();
+    
+    const labels=data.days.map(d=>new Date(d.date).toLocaleDateString('ru-RU',{month:'short',day:'numeric'}));
+    const earnings=data.days.map(d=>d.earnings||0);
+    
+    const ctx=document.getElementById('earningsChart').getContext('2d');
+    new Chart(ctx,{
+      type:'bar',
+      data:{
+        labels:labels,
+        datasets:[{
+          label:'Заработок (₽)',
+          data:earnings,
+          backgroundColor:'#FFCC00',
+          borderColor:'#FFB800',
+          borderWidth:1,
+          borderRadius:4
+        }]
+      },
+      options:{
+        responsive:true,
+        plugins:{legend:{display:false}},
+        scales:{y:{beginAtZero:true,ticks:{color:'#999'},grid:{color:'#333'}},x:{ticks:{color:'#999'},grid:{display:false}}}
+      }
+    });
+  }catch(e){
+    console.error('Error loading chart',e);
+  }
+}
+
+document.getElementById('header-date').textContent=new Date().toLocaleDateString('ru-RU',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+loadStats();
+loadRides();
+loadChart();
+</script>
+</body>
+</html>

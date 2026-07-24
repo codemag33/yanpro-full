@@ -359,9 +359,6 @@ class MainActivity : AppCompatActivity() {
             openAddressSearchDialog(target)
         }
         binding.btnSettings.setOnClickListener { openServerSettingsDialog() }
-        binding.btnHistory.setOnClickListener {
-            startActivity(Intent(this, HistoryActivity::class.java))
-        }
     }
 
     private fun setupRouteInputs() {
