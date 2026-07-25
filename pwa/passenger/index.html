@@ -135,6 +135,14 @@
 <div id="connBar" class="hidden" style="position:fixed;top:60px;left:12px;right:12px;padding:8px 14px;border-radius:10px;font-size:12px;font-weight:600;z-index:25;text-align:center;"></div>
 <div id="toast"></div>
 
+<!-- ═══════════════ МЕНЮ ═══════════════ -->
+<div id="menuOverlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:40;" onclick="this.classList.add('hidden')"></div>
+<div id="menuCard" class="hidden" style="position:fixed;bottom:0;left:0;right:0;background:var(--card);border-radius:20px 20px 0 0;padding:16px 16px calc(16px+env(safe-area-inset-bottom));z-index:41;box-shadow:var(--shadow);">
+  <div style="width:36px;height:4px;background:#DDD;border-radius:2px;margin:0 auto 14px;"></div>
+  <div id="menuUserInfo" style="padding:0 0 14px;border-bottom:1px solid #F0F0F0;font-size:15px;font-weight:600;"></div>
+  <div id="menuLogout" style="display:flex;align-items:center;gap:12px;padding:14px 0;color:var(--danger);font-size:15px;font-weight:600;cursor:pointer;">🚪 Выйти</div>
+</div>
+
 <!-- ═══════════════ ЧАТ ═══════════════ -->
 <div id="chatOverlay" class="hidden">
   <div id="chatHeader">
@@ -761,7 +769,17 @@ function logout() {
   localStorage.removeItem('yanpro_token'); localStorage.removeItem('yanpro_user');
   location.reload();
 }
-document.getElementById('btnMenu').onclick = () => { if (confirm('Выйти из аккаунта?')) logout(); };
+document.getElementById('btnMenu').onclick = () => {
+  const name = state.user?.name || state.user?.login || '';
+  document.getElementById('menuUserInfo').textContent = name ? '👤 ' + name : '';
+  document.getElementById('menuOverlay').classList.remove('hidden');
+  document.getElementById('menuCard').classList.remove('hidden');
+};
+document.getElementById('menuLogout').onclick = () => {
+  document.getElementById('menuOverlay').classList.add('hidden');
+  document.getElementById('menuCard').classList.add('hidden');
+  if (confirm('Выйти из аккаунта?')) logout();
+};
 
 </script>
 </body>
