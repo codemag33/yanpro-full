@@ -11,6 +11,7 @@ const driverRoutes = require('./routes/driver');
 const adminRoutes = require('./routes/admin');
 const routingRoutes = require('./routes/routing');
 const reviewsRoutes = require('./routes/reviews');
+const bonusesRoutes = require('./routes/bonuses');
 const adminV2Routes = require('./routes/admin_v2');
 const { requireAuth, requireRole } = require('./middleware/authMiddleware');
 const setupSockets = require('./sockets');
@@ -28,6 +29,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/admin', adminV2Routes);
 app.use('/api/routing', routingRoutes);
 app.use('/api/reviews', reviewsRoutes);
+app.use('/api/bonuses', bonusesRoutes);
 
 app.get('/health', async (_, res) => {
   try {

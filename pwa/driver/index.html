@@ -10,6 +10,7 @@
 <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="../connection-manager.js"></script>
 <style>
   :root{
     --bg:#141414; --card:#1F1F1F; --card2:#2A2A2A; --yellow:#FFCC00; --yellow-dark:#E0B400;
@@ -172,7 +173,16 @@
 
 <div id="requestCard" class="hidden"></div>
 <div id="sheet" class="hidden"></div>
+<div id="connBar" class="hidden" style="position:fixed;top:60px;left:12px;right:12px;padding:8px 14px;border-radius:10px;font-size:12px;font-weight:600;z-index:25;text-align:center;"></div>
 <div id="toast"></div>
+
+<!-- ═══════════════ МЕНЮ ═══════════════ -->
+<div id="menuOverlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:40;" onclick="this.classList.add('hidden')"></div>
+<div id="menuCard" class="hidden" style="position:fixed;bottom:0;left:0;right:0;background:var(--card);border-radius:20px 20px 0 0;padding:16px 16px calc(16px+env(safe-area-inset-bottom));z-index:41;box-shadow:var(--shadow);">
+  <div style="width:36px;height:4px;background:#DDD;border-radius:2px;margin:0 auto 14px;"></div>
+  <a id="menuEarnings" href="earnings.html" style="display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid #F0F0F0;color:var(--text);text-decoration:none;font-size:15px;font-weight:600;">💰 Доходы и бонусы</a>
+  <div id="menuLogout" style="display:flex;align-items:center;gap:12px;padding:14px 0;color:var(--danger);font-size:15px;font-weight:600;cursor:pointer;">🚪 Выйти</div>
+</div>
 
 <!-- ═══════════════ МОДАЛКА ЦЕНЫ ═══════════════ -->
 <div id="priceOverlay" class="hidden">
@@ -242,10 +252,23 @@ function toast(msg) {
 function isMechanic() { return state.user?.role === 'mechanic'; }
 
 /* ════════════════════════ REST API ════════════════════════ */
+async function fetchWithTimeout(url, options = {}, timeout = 10000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    if (err.name === 'AbortError') throw new Error('Таймаут запроса');
+    throw new Error('Нет связи с сервером');
+  }
+}
 async function api(path, method = 'GET', body) {
   const headers = { 'Content-Type': 'application/json' };
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
-  const res = await fetch(state.serverUrl + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetchWithTimeout(state.serverUrl + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `http_${res.status}`);
   return data;
@@ -481,15 +504,29 @@ async function openHistory() {
 }
 
 /* ════════════════════════ SOCKET.IO ════════════════════════ */
+/* ════════════════════════ SOCKET.IO ════════════════════════ */
+function updateConn(status) {
+  const bar = document.getElementById('connBar');
+  if (!bar) return;
+  bar.className = status === 'online' ? 'hidden' : '';
+  bar.style.background = status === 'online' ? '#1B5E20' : status === 'connecting' ? '#E65100' : '#B71C1C';
+  bar.style.color = '#fff';
+  bar.textContent = { online: '✅ Подключено', connecting: '⏳ Переподключение...', offline: '📴 Нет соединения с сервером' }[status];
+}
 function connectSocket() {
   if (state.socket) state.socket.disconnect();
-  state.socket = io(state.serverUrl, { auth: { token: state.token }, transports: ['websocket', 'polling'] });
+  updateConn('connecting');
+  state.socket = io(state.serverUrl, {
+    auth: { token: state.token }, transports: ['websocket', 'polling'],
+    reconnection: true, reconnectionDelay: 1000, reconnectionDelayMax: 8000, reconnectionAttempts: Infinity
+  });
 
   state.socket.on('connect_error', (err) => {
     if (err.message === 'invalid_token' || err.message === 'no_token') logout();
-    else toast('Нет соединения с сервером');
+    else updateConn('connecting');
   });
-  state.socket.on('connect', () => toast('Подключено к серверу'));
+  state.socket.on('connect', () => { toast('Подключено к серверу'); updateConn('online'); });
+  state.socket.on('disconnect', () => updateConn('offline'));
 
   state.socket.on('session:restore_ride', (ride) => {
     state.activeRide = { id: ride.id, status: ride.status, name: ride.passenger_name || 'Пассажир',
@@ -812,7 +849,15 @@ function logout() {
   localStorage.removeItem('yanpro_driver_token'); localStorage.removeItem('yanpro_driver_user');
   location.reload();
 }
-document.getElementById('btnMenu').onclick = () => { if (confirm('Выйти из аккаунта?')) logout(); };
+document.getElementById('btnMenu').onclick = () => {
+  document.getElementById('menuOverlay').classList.remove('hidden');
+  document.getElementById('menuCard').classList.remove('hidden');
+};
+document.getElementById('menuLogout').onclick = () => {
+  document.getElementById('menuOverlay').classList.add('hidden');
+  document.getElementById('menuCard').classList.add('hidden');
+  if (confirm('Выйти из аккаунта?')) logout();
+};
 
 </script>
 </body>
