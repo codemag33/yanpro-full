@@ -154,7 +154,7 @@
 /* ════════════════════════ КОНФИГ / СОСТОЯНИЕ ════════════════════════ */
 const ORENBURG = { lat: 51.7727, lon: 55.0988 };
 const state = {
-  serverUrl: window.location.origin,
+  serverUrl: localStorage.getItem('yanpro_server_url') || window.location.origin,
   token: localStorage.getItem('yanpro_token') || null,
   user: JSON.parse(localStorage.getItem('yanpro_user') || 'null'),
   socket: null,
@@ -571,8 +571,6 @@ function renderSheetSearching(kind) {
       <div class="big">${kind === 'ride' ? 'Ищем водителя...' : 'Ищем мастера...'}</div>
       <div class="small">Обычно это занимает меньше минуты</div>
     </div>
-    <button class="actionsRow" style="display:block;" id="btnCancelSearch">
-    </button>
     <div class="actionsRow"><button class="btnDanger" style="flex:1" id="btnCancelSearch2">Отменить</button></div>
   `;
   const cancel = () => kind === 'ride' ? cancelRide('passenger_cancel') : cancelAssistance();

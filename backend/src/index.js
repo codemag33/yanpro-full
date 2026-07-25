@@ -13,7 +13,6 @@ const routingRoutes = require('./routes/routing');
 const reviewsRoutes = require('./routes/reviews');
 const bonusesRoutes = require('./routes/bonuses');
 const adminV2Routes = require('./routes/admin_v2');
-const { requireAuth, requireRole } = require('./middleware/authMiddleware');
 const setupSockets = require('./sockets');
 
 const PORT = process.env.PORT || 3002;
@@ -40,22 +39,12 @@ app.get('/health', async (_, res) => {
   }
 });
 
-// Пример защищённого админ-эндпоинта — теперь через JWT с ролью admin, а не Basic Auth admin/12345
-app.get('/api/admin/stats', requireAuth, requireRole('admin'), async (_, res) => {
-  const rides = await db.query(`SELECT status, count(*) FROM rides GROUP BY status`);
-  const assists = await db.query(`SELECT status, count(*) FROM assistance_requests GROUP BY status`);
-  const users = await db.query(`SELECT role, count(*) FROM users GROUP BY role`);
-  res.json({
-    rides: rides.rows,
-    assists: assists.rows,
-    users: users.rows,
-  });
-});
-
-// Раздача PWA пассажира (папка /passenger), водителя/механика (папка /driver) и адмики (папка /admin)
+// Раздача PWA пассажира (папка /passenger), водителя/механика (папка /driver) и админки (папка /admin)
 app.use('/passenger', express.static('passenger'));
 app.use('/driver', express.static('driver'));
 app.use('/admin', express.static('admin'));
+app.use('/pwa', express.static('.'));
+app.get('/', (_, res) => res.redirect('/passenger/'));
 
 const server = http.createServer(app);
 const io = new Server(server, {

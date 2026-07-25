@@ -14,6 +14,8 @@ COPY pwa/passenger/index.html passenger/
 COPY pwa/passenger/manifest.json passenger/
 COPY pwa/driver/index.html driver/
 COPY pwa/driver/manifest.json driver/
+COPY pwa/driver/earnings.html driver/
+COPY pwa/connection-manager.js ./
 COPY admin/ admin/
 
 # Установка зависимостей

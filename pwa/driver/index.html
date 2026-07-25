@@ -226,7 +226,7 @@
 /* ════════════════════════ СОСТОЯНИЕ ════════════════════════ */
 const ORENBURG = { lat: 51.7727, lon: 55.0988 };
 const state = {
-  serverUrl: window.location.origin,
+  serverUrl: localStorage.getItem('yanpro_driver_server_url') || window.location.origin,
   token: localStorage.getItem('yanpro_driver_token') || null,
   user: JSON.parse(localStorage.getItem('yanpro_driver_user') || 'null'),
   regRole: 'driver',
@@ -350,11 +350,11 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ════════════════════════ МАРШРУТЫ ════════════════════════ */
-const OSRM_URL = state.serverUrl.replace(/\/$/, '') + '/api/routing/route';
+function getOSRMUrl() { return state.serverUrl.replace(/\/$/, '') + '/api/routing/route'; }
 
 async function fetchRoute(lat1, lon1, lat2, lon2) {
   try {
-    const res = await fetch(OSRM_URL, {
+    const res = await fetch(getOSRMUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ startLat: lat1, startLon: lon1, endLat: lat2, endLon: lon2 }),

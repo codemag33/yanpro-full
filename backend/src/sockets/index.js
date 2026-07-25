@@ -13,6 +13,8 @@ const rideRoom = (id) => `ride_${id}`;
 const assistRoom = (id) => `assist_${id}`;
 
 function setupSockets(io) {
+  // ─── Хранилище уведомлённых водителей (per ride) ───────────────────
+  const notifiedDriversMap = new Map();
   // ─── Аутентификация на этапе handshake ──────────────────────────────
   io.use((socket, next) => {
     try {
@@ -119,7 +121,7 @@ function setupSockets(io) {
           notifiedDriverIds.push(d.userId);
         }
         // Сохраняем список уведомлённых в ride (для ride:closed_for_others)
-        ride._notifiedDrivers = notifiedDriverIds;
+        notifiedDriversMap.set(ride.id, notifiedDriverIds);
         socket.emit('ride:created', { rideId: ride.id, driversNotified: nearby.length });
       } catch (err) {
         console.error('[ride:request] error', err);
@@ -149,12 +151,14 @@ function setupSockets(io) {
       });
 
       // Уведомляем ТОЛЬКО тех водителей, которым отправляли заказ
-      if (ride._notifiedDrivers) {
-        for (const driverId of ride._notifiedDrivers) {
+      const notifiedIds = notifiedDriversMap.get(ride.id);
+      if (notifiedIds) {
+        for (const driverId of notifiedIds) {
           if (driverId !== userId) {
             io.to(userRoom(driverId)).emit('ride:closed_for_others', { rideId: ride.id });
           }
         }
+        notifiedDriversMap.delete(ride.id);
       } else {
         // Fallback: если список не сохранился (рестарт сервера) — broadcast
         socket.broadcast.emit('ride:closed_for_others', { rideId: ride.id });
