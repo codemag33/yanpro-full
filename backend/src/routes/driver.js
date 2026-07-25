@@ -43,10 +43,10 @@ router.get('/history', requireAuth, requireRole('driver', 'mechanic'), async (re
        WHERE r.driver_id = $1 AND r.status IN ('completed', 'cancelled')
        UNION ALL
        SELECT ar.id, 'assistance' as type, status, NULL as price,
-              car_make || ' — ' || COALESCE(breakdown_type, '') as pickup_address,
-              description as destination_address,
-              created_at, finished_at, NULL as cancel_reason,
-              NULL as passenger_name, phone as passenger_phone
+              COALESCE(ar.car_make, '') || CASE WHEN ar.breakdown_type IS NOT NULL THEN ' — ' || ar.breakdown_type ELSE '' END as pickup_address,
+              COALESCE(ar.description, '') as destination_address,
+              ar.created_at, ar.finished_at, NULL as cancel_reason,
+              NULL as passenger_name, ar.phone as passenger_phone
        FROM assistance_requests ar
        WHERE ar.mechanic_id = $1 AND ar.status IN ('completed', 'cancelled')
        ORDER BY finished_at DESC LIMIT 50`,
