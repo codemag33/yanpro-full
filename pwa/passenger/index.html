@@ -263,6 +263,16 @@ function startApp() {
 
 if (state.token && state.user) startApp();
 
+/* ─── Жизненный цикл страницы ──────────────────────────────── */
+window.addEventListener('pagehide', () => {
+  if (state.socket) state.socket.disconnect();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.token && state.socket && !state.socket.connected) {
+    state.socket.connect();
+  }
+});
+
 /* ════════════════════════ КАРТА ════════════════════════ */
 // Простой растровый стиль на прямых тайлах OSM — единственная зависимость здесь
 // это доступность tile-серверов OSM, никакого внешнего style.json не требуется.
