@@ -922,6 +922,10 @@ document.getElementById('priceCancel').onclick = () => {
 
 /* ════════════════════════ ВЫХОД ════════════════════════ */
 function logout() {
+  if (state.socket && state.socket.connected) {
+    state.socket.emit('driver:status', { status: 'offline' });
+    state.socket.disconnect();
+  }
   localStorage.removeItem('yanpro_driver_token'); localStorage.removeItem('yanpro_driver_user');
   location.reload();
 }

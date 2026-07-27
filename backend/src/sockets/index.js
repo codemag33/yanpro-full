@@ -368,8 +368,7 @@ function setupSockets(io) {
     socket.on('disconnect', async () => {
       pendingChecked.delete(userId);
       if (role === 'driver' || role === 'mechanic') {
-        // Не удаляем сразу — TTL в geo.js (10 мин) сам подчистит, если это был просто разрыв связи
-        // без явного выхода. Явный выход (driver:status offline) удаляет сразу.
+        await geo.removeDriver(role, userId);
       }
       console.log(`[disconnect] ${name} (${role}) userId=${userId}`);
     });
