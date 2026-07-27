@@ -351,13 +351,11 @@ function startApp() {
 if (state.token && state.user) startApp();
 
 /* ─── Жизненный цикл страницы ──────────────────────────────── */
-window.addEventListener('pagehide', () => {
-  if (state.socket) state.socket.disconnect();
-});
+state.backgrounded = false;
+window.addEventListener('pagehide', () => { state.backgrounded = true; });
+window.addEventListener('pageshow', () => { state.backgrounded = false; });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.token && state.socket && !state.socket.connected) {
-    state.socket.connect();
-  }
+  state.backgrounded = document.visibilityState === 'hidden';
 });
 
 /* ════════════════════════ МАРШРУТЫ ════════════════════════ */
@@ -564,6 +562,7 @@ async function openSkipped() {
 /* ════════════════════════ SOCKET.IO ════════════════════════ */
 /* ════════════════════════ SOCKET.IO ════════════════════════ */
 function updateConn(status) {
+  if (state.backgrounded) return;
   const bar = document.getElementById('connBar');
   if (!bar) return;
   bar.className = status === 'online' ? 'hidden' : '';
@@ -583,8 +582,13 @@ function connectSocket() {
     if (err.message === 'invalid_token' || err.message === 'no_token') logout();
     else updateConn('connecting');
   });
-  state.socket.on('connect', () => { toast('Подключено к серверу'); updateConn('online'); });
-  state.socket.on('disconnect', () => updateConn('offline'));
+  state.socket.on('connect', () => {
+    if (!state.backgrounded) toast('Подключено к серверу');
+    updateConn('online');
+  });
+  state.socket.on('disconnect', () => {
+    if (!state.backgrounded) updateConn('offline');
+  });
 
   state.socket.on('session:restore_ride', (ride) => {
     state.activeRide = { id: ride.id, status: ride.status, name: ride.passenger_name || 'Пассажир',

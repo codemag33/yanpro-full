@@ -66,8 +66,8 @@ function setupSockets(io) {
         if (data.assistId) socket.to(assistRoom(data.assistId)).emit('assistance:driver_location', { lat: data.lat, lon: data.lon });
 
         // Первое обновление локации — ищем отложенные заявки рядом
-        if (!pendingChecked.has(socket.id)) {
-          pendingChecked.add(socket.id);
+        if (!pendingChecked.has(userId)) {
+          pendingChecked.add(userId);
           try {
             if (role === 'driver') {
               const pending = await db.query(
@@ -352,7 +352,7 @@ function setupSockets(io) {
 
     // ─── Отключение ──────────────────────────────────────────────────────
     socket.on('disconnect', async () => {
-      pendingChecked.delete(socket.id);
+      pendingChecked.delete(userId);
       if (role === 'driver' || role === 'mechanic') {
         // Не удаляем сразу — TTL в geo.js (10 мин) сам подчистит, если это был просто разрыв связи
         // без явного выхода. Явный выход (driver:status offline) удаляет сразу.
