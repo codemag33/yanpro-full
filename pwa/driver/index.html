@@ -766,6 +766,7 @@ function renderActiveRide() {
   document.getElementById('btnChat').onclick = openChat;
   document.getElementById('btnCancel').onclick = () => { state.socket.emit('ride:cancel', { rideId: r.id, reason: 'driver_cancel' }); resetRide(); };
   document.getElementById('btnPrimary').onclick = () => {
+    console.log('[btnPrimary] click, status=', r.status, 'rideId=', r.id);
     if (r.status === 'accepted') {
       state.socket.emit('ride:start', { rideId: r.id });
       state.activeRide.status = 'in_progress';
@@ -843,6 +844,7 @@ function appendChatMessage(m) {
 /* ════════════════════════ МОДАЛКА ЦЕНЫ ════════════════════════ */
 function showPriceModal() {
   const r = state.activeRide;
+  console.log('[showPriceModal] activeRide=', r);
   if (!r) return;
   const overlay = document.getElementById('priceOverlay');
   overlay.classList.remove('hidden');
