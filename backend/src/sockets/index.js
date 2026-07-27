@@ -16,7 +16,10 @@ function setupSockets(io) {
   // ─── Хранилище уведомлённых водителей (per ride) ───────────────────
   const notifiedDriversMap = new Map();
   // ─── Сокеты, которым уже выслали отложенные заявки ────────────────
-  const pendingChecked = new Set();
+  // ─── Кэш проверки pending-заявок (сбрасывается через 5 минут) ───────
+  // userId → timestamp последней проверки
+  const pendingChecked = new Map();
+  const PENDING_CHECK_TTL_MS = 5 * 60 * 1000;
   // ─── Аутентификация на этапе handshake ──────────────────────────────
   io.use((socket, next) => {
     try {
@@ -32,6 +35,7 @@ function setupSockets(io) {
   io.on('connection', async (socket) => {
     const { id: userId, role, name } = socket.user;
     socket.join(userRoom(userId));
+    if (role === 'admin') socket.join('dispatch');
     console.log(`[connect] ${name} (${role}) userId=${userId} socket=${socket.id}`);
 
     // Обновляем последнее время активности пользователя (для админ-панели)
@@ -64,10 +68,13 @@ function setupSockets(io) {
         // Шлём координаты только в комнату конкретной поездки, а не всем подряд.
         if (data.rideId) socket.to(rideRoom(data.rideId)).emit('ride:driver_location', { lat: data.lat, lon: data.lon });
         if (data.assistId) socket.to(assistRoom(data.assistId)).emit('assistance:driver_location', { lat: data.lat, lon: data.lon });
+        // Диспетчерская: обновляем локацию водителя на карте в реальном времени
+        socket.to('dispatch').emit('driver:location_update', { userId, lat: data.lat, lon: data.lon, role, name });
 
         // Первое обновление локации — ищем отложенные заявки рядом
-        if (!pendingChecked.has(userId)) {
-          pendingChecked.add(userId);
+        const lastCheck = pendingChecked.get(userId) || 0;
+        if (Date.now() - lastCheck > PENDING_CHECK_TTL_MS) {
+          pendingChecked.set(userId, Date.now());
           try {
             if (role === 'driver') {
               const pending = await db.query(
@@ -175,6 +182,7 @@ function setupSockets(io) {
         // Сохраняем список уведомлённых в ride (для ride:closed_for_others)
         notifiedDriversMap.set(ride.id, notifiedDriverIds);
         socket.emit('ride:created', { rideId: ride.id, driversNotified: nearby.length });
+        io.to('dispatch').emit('ride:created', { rideId: ride.id });
       } catch (err) {
         console.error('[ride:request] error', err);
         socket.emit('error:server', { context: 'ride:request' });
@@ -201,6 +209,7 @@ function setupSockets(io) {
         driverId: userId,
         driverName: name,
       });
+      io.to('dispatch').emit('ride:accepted', { rideId: ride.id });
 
       // Уведомляем ТОЛЬКО тех водителей, которым отправляли заказ
       const notifiedIds = notifiedDriversMap.get(ride.id);
@@ -227,6 +236,7 @@ function setupSockets(io) {
       if (role !== 'driver' || !data?.rideId) return;
       await ridesDb.finishRide(data.rideId, data.price);
       io.to(rideRoom(data.rideId)).emit('ride:finished', { rideId: data.rideId, price: data.price });
+      io.to('dispatch').emit('ride:finished', { rideId: data.rideId });
       io.socketsLeave(rideRoom(data.rideId));
     });
 
@@ -234,6 +244,7 @@ function setupSockets(io) {
       if (!data?.rideId) return;
       await ridesDb.cancelRide(data.rideId, data.reason);
       io.to(rideRoom(data.rideId)).emit('ride:cancelled', { rideId: data.rideId, by: role });
+      io.to('dispatch').emit('ride:cancelled', { rideId: data.rideId });
       io.socketsLeave(rideRoom(data.rideId));
     });
 
@@ -300,12 +311,14 @@ function setupSockets(io) {
         assistId: assist.id, mechanicId: userId, mechanicName: name,
       });
       socket.broadcast.emit('assistance:closed_for_others', { assistId: assist.id });
+      io.to('dispatch').emit('assistance:accepted', { assistId: assist.id });
     });
 
     socket.on('assistance:finish', async (data) => {
       if (role !== 'mechanic' || !data?.assistId) return;
       await assistDb.finishAssist(data.assistId);
       io.to(assistRoom(data.assistId)).emit('assistance:finished', { assistId: data.assistId });
+      io.to('dispatch').emit('assistance:finished', { assistId: data.assistId });
       io.socketsLeave(assistRoom(data.assistId));
     });
 
@@ -313,6 +326,7 @@ function setupSockets(io) {
       if (!data?.assistId) return;
       await assistDb.cancelAssist(data.assistId);
       io.to(assistRoom(data.assistId)).emit('assistance:cancelled', { assistId: data.assistId, by: role });
+      io.to('dispatch').emit('assistance:cancelled', { assistId: data.assistId });
       io.socketsLeave(assistRoom(data.assistId));
     });
 

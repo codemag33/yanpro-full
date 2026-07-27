@@ -13,6 +13,7 @@ const routingRoutes = require('./routes/routing');
 const reviewsRoutes = require('./routes/reviews');
 const bonusesRoutes = require('./routes/bonuses');
 const adminV2Routes = require('./routes/admin_v2');
+const dispatchRoutes = require('./routes/dispatch');
 const setupSockets = require('./sockets');
 
 const PORT = process.env.PORT || 3002;
@@ -26,6 +27,7 @@ app.use('/api/geocode', geocodeRoutes);
 app.use('/api/driver', driverRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin', adminV2Routes);
+app.use('/api/dispatch', dispatchRoutes);
 app.use('/api/routing', routingRoutes);
 app.use('/api/reviews', reviewsRoutes);
 app.use('/api/bonuses', bonusesRoutes);
@@ -50,6 +52,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: process.env.CORS_ORIGIN || '*', methods: ['GET', 'POST'] },
 });
+app.set('io', io);
 setupSockets(io);
 
 server.listen(PORT, () => {
