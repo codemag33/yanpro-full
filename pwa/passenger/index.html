@@ -269,6 +269,9 @@ function startApp() {
   locateMe(true);
 }
 
+/* ════════════════════════ НИЖНИЙ ЛИСТ — СОСТОЯНИЯ ════════════════════════ */
+const sheet = document.getElementById('sheet');
+
 if (state.token && state.user) startApp();
 
 /* ─── Жизненный цикл страницы ──────────────────────────────── */
@@ -525,7 +528,6 @@ navigator.geolocation && navigator.geolocation.watchPosition(
 );
 
 /* ════════════════════════ НИЖНИЙ ЛИСТ — СОСТОЯНИЯ ════════════════════════ */
-const sheet = document.getElementById('sheet');
 
 function renderSheetIdle() {
   if (state.activeRide || state.activeAssist) return; // не перерисовываем поверх активного состояния
