@@ -79,6 +79,7 @@ function setupSockets(io) {
             if (role === 'driver') {
               const pending = await db.query(
                 `SELECT id, ST_Y(pickup::geometry) AS lat, ST_X(pickup::geometry) AS lon,
+                        ST_Y(destination::geometry) AS dest_lat, ST_X(destination::geometry) AS dest_lon,
                         pickup_address, destination_address, passenger_id
                  FROM rides
                  WHERE status = 'searching'
@@ -92,7 +93,7 @@ function setupSockets(io) {
                   passengerName: 'Пассажир',
                   pickup: { lat: r.lat, lon: r.lon },
                   pickupAddress: r.pickup_address,
-                  destination: { lat: 0, lon: 0 },
+                  destination: { lat: r.dest_lat || 0, lon: r.dest_lon || 0 },
                   destinationAddress: r.destination_address,
                 });
               }
