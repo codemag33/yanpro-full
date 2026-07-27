@@ -237,6 +237,26 @@ function setupSockets(io) {
       io.socketsLeave(rideRoom(data.rideId));
     });
 
+    // ─── Пропуск заказа / заявки (сохранение в журнал) ──────────────────
+    socket.on('ride:skip', async (data) => {
+      if (!data?.rideId) return;
+      try {
+        await db.query(
+          `INSERT INTO skipped_requests (user_id, request_type, request_id) VALUES ($1, 'ride', $2)`,
+          [userId, data.rideId]
+        );
+      } catch (e) { console.error('[ride:skip]', e.message); }
+    });
+    socket.on('assistance:skip', async (data) => {
+      if (!data?.assistId) return;
+      try {
+        await db.query(
+          `INSERT INTO skipped_requests (user_id, request_type, request_id) VALUES ($1, 'assist', $2)`,
+          [userId, data.assistId]
+        );
+      } catch (e) { console.error('[assistance:skip]', e.message); }
+    });
+
     // ─── Заявка на помощь (механик) — та же логика, отдельные комнаты ──
     socket.on('assistance:request', async (data) => {
       if (role !== 'passenger') return;

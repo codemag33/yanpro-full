@@ -59,4 +59,49 @@ router.get('/history', requireAuth, requireRole('driver', 'mechanic'), async (re
   }
 });
 
+// Журнал пропущенных заказов/заявок — с телефонами, неисправностями, статусом.
+router.get('/skipped', requireAuth, requireRole('driver', 'mechanic'), async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT sr.id as skip_id, sr.request_type, sr.request_id, sr.skipped_at,
+              CASE
+                WHEN sr.request_type = 'ride' THEN r.status
+                ELSE ar.status
+              END as status,
+              CASE
+                WHEN sr.request_type = 'ride' THEN r.pickup_address
+                ELSE COALESCE(ar.car_make, '') || CASE WHEN ar.breakdown_type IS NOT NULL THEN ' — ' || ar.breakdown_type ELSE '' END
+              END as pickup_address,
+              CASE
+                WHEN sr.request_type = 'ride' THEN r.destination_address
+                ELSE COALESCE(ar.description, '')
+              END as destination_address,
+              CASE
+                WHEN sr.request_type = 'ride' THEN u.name
+                ELSE COALESCE(ar.passenger_name, 'Пассажир')
+              END as passenger_name,
+              CASE
+                WHEN sr.request_type = 'ride' THEN u.phone
+                ELSE ar.phone
+              END as passenger_phone,
+              CASE
+                WHEN sr.request_type = 'ride' THEN r.created_at
+                ELSE ar.created_at
+              END as request_created_at
+       FROM skipped_requests sr
+       LEFT JOIN rides r ON sr.request_type = 'ride' AND sr.request_id = r.id
+       LEFT JOIN assistance_requests ar ON sr.request_type = 'assist' AND sr.request_id = ar.id
+       LEFT JOIN users u ON sr.request_type = 'ride' AND r.passenger_id = u.id
+       WHERE sr.user_id = $1
+       ORDER BY sr.skipped_at DESC
+       LIMIT 50`,
+      [req.user.id]
+    );
+    res.json({ skips: result.rows });
+  } catch (err) {
+    console.error('[driver/skipped]', err);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 module.exports = router;
