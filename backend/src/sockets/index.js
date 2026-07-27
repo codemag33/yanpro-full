@@ -76,7 +76,7 @@ function setupSockets(io) {
                  FROM rides
                  WHERE status = 'searching'
                    AND ST_DWithin(pickup::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 15000)
-                 ORDER BY created_at ASC LIMIT 5`,
+                 ORDER BY created_at ASC LIMIT 3`,
                 [data.lon, data.lat]
               );
               for (const r of pending.rows) {
@@ -97,7 +97,7 @@ function setupSockets(io) {
                  FROM assistance_requests
                  WHERE status = 'waiting'
                    AND ST_DWithin(pickup::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 25000)
-                 ORDER BY created_at ASC LIMIT 5`,
+                 ORDER BY created_at ASC LIMIT 3`,
                 [data.lon, data.lat]
               );
               for (const a of pending.rows) {

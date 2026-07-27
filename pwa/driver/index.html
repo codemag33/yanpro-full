@@ -235,6 +235,7 @@ const state = {
   markers: { self: null, passenger: null },
   isOnline: false,
   pendingRequest: null,   // входящий заказ/заявка, ждущая решения водителя
+  requestQueue: [],       // очередь ожидающих заявок (когда показывается текущая)
   countdownTimer: null,
   activeRide: null,       // {id, status, ...}
   activeAssist: null,
@@ -561,7 +562,8 @@ function connectSocket() {
 
   // ─── Входящие заказы ────────────────────────────────────────────────
   state.socket.on('ride:new_request', (data) => {
-    if (state.activeRide || state.activeAssist || state.pendingRequest) return; // один заказ за раз
+    if (state.activeRide || state.activeAssist) return;
+    if (state.pendingRequest) { state.requestQueue.push({ kind: 'ride', ...data }); return; }
     showIncomingRequest('ride', data);
     // Рисуем маршрут если есть
     if (data.route && data.route.geometry) {
@@ -585,7 +587,8 @@ function connectSocket() {
 
   // ─── Входящие заявки на помощь ──────────────────────────────────────
   state.socket.on('assistance:new_request', (data) => {
-    if (state.activeRide || state.activeAssist || state.pendingRequest) return;
+    if (state.activeRide || state.activeAssist) return;
+    if (state.pendingRequest) { state.requestQueue.push({ kind: 'assist', ...data }); return; }
     showIncomingRequest('assist', data);
   });
   state.socket.on('assistance:already_taken', () => { if (state.pendingRequest) dismissIncomingRequest(); toast('Заявку уже принял другой мастер'); });
@@ -650,12 +653,18 @@ function dismissIncomingRequest() {
   clearTimeout(state.countdownTimer);
   state.pendingRequest = null;
   document.getElementById('requestCard').classList.add('hidden');
+  // Показать следующий из очереди
+  if (state.requestQueue.length > 0 && !state.activeRide && !state.activeAssist) {
+    const next = state.requestQueue.shift();
+    setTimeout(() => showIncomingRequest(next.kind, next), 300);
+  }
 }
 
 function acceptIncomingRequest() {
   const req = state.pendingRequest;
   if (!req) return;
   clearTimeout(state.countdownTimer);
+  state.requestQueue = [];
   document.getElementById('requestCard').classList.add('hidden');
 
   if (req.kind === 'ride') {
