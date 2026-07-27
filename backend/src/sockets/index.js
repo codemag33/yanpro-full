@@ -15,6 +15,8 @@ const assistRoom = (id) => `assist_${id}`;
 function setupSockets(io) {
   // ─── Хранилище уведомлённых водителей (per ride) ───────────────────
   const notifiedDriversMap = new Map();
+  // ─── Сокеты, которым уже выслали отложенные заявки ────────────────
+  const pendingChecked = new Set();
   // ─── Аутентификация на этапе handshake ──────────────────────────────
   io.use((socket, next) => {
     try {
@@ -62,6 +64,56 @@ function setupSockets(io) {
         // Шлём координаты только в комнату конкретной поездки, а не всем подряд.
         if (data.rideId) socket.to(rideRoom(data.rideId)).emit('ride:driver_location', { lat: data.lat, lon: data.lon });
         if (data.assistId) socket.to(assistRoom(data.assistId)).emit('assistance:driver_location', { lat: data.lat, lon: data.lon });
+
+        // Первое обновление локации — ищем отложенные заявки рядом
+        if (!pendingChecked.has(socket.id)) {
+          pendingChecked.add(socket.id);
+          try {
+            if (role === 'driver') {
+              const pending = await db.query(
+                `SELECT id, ST_Y(pickup::geometry) AS lat, ST_X(pickup::geometry) AS lon,
+                        pickup_address, destination_address, passenger_id
+                 FROM rides
+                 WHERE status = 'searching'
+                   AND ST_DWithin(pickup::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 15000)
+                 ORDER BY created_at ASC LIMIT 5`,
+                [data.lon, data.lat]
+              );
+              for (const r of pending.rows) {
+                io.to(userRoom(userId)).emit('ride:new_request', {
+                  rideId: r.id,
+                  passengerName: 'Пассажир',
+                  pickup: { lat: r.lat, lon: r.lon },
+                  pickupAddress: r.pickup_address,
+                  destination: { lat: 0, lon: 0 },
+                  destinationAddress: r.destination_address,
+                });
+              }
+            }
+            if (role === 'mechanic') {
+              const pending = await db.query(
+                `SELECT id, ST_Y(pickup::geometry) AS lat, ST_X(pickup::geometry) AS lon,
+                        car_make, phone, breakdown_type, description, passenger_id
+                 FROM assistance_requests
+                 WHERE status = 'waiting'
+                   AND ST_DWithin(pickup::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 25000)
+                 ORDER BY created_at ASC LIMIT 5`,
+                [data.lon, data.lat]
+              );
+              for (const a of pending.rows) {
+                io.to(userRoom(userId)).emit('assistance:new_request', {
+                  assistId: a.id,
+                  passengerName: 'Пассажир',
+                  pickup: { lat: a.lat, lon: a.lon },
+                  carMake: a.car_make,
+                  phone: a.phone,
+                  breakdownType: a.breakdown_type,
+                  description: a.description,
+                });
+              }
+            }
+          } catch (e) { console.error('[pending check]', e.message); }
+        }
         return;
       }
 
@@ -280,6 +332,7 @@ function setupSockets(io) {
 
     // ─── Отключение ──────────────────────────────────────────────────────
     socket.on('disconnect', async () => {
+      pendingChecked.delete(socket.id);
       if (role === 'driver' || role === 'mechanic') {
         // Не удаляем сразу — TTL в geo.js (10 мин) сам подчистит, если это был просто разрыв связи
         // без явного выхода. Явный выход (driver:status offline) удаляет сразу.
