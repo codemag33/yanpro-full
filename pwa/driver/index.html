@@ -122,6 +122,9 @@
 
   .selfMarker{width:36px; height:36px; border-radius:50%; background:var(--yellow); border:3px solid #fff; box-shadow:var(--shadow); display:flex; align-items:center; justify-content:center; font-size:16px;}
   .passMarker{width:30px; height:30px; border-radius:50%; background:#fff; box-shadow:var(--shadow); display:flex; align-items:center; justify-content:center; font-size:15px;}
+  .pendingMarker{width:32px; height:32px; border-radius:50%; background:#fff; border:3px solid var(--yellow); box-shadow:0 2px 8px rgba(0,0,0,.3); display:flex; align-items:center; justify-content:center; font-size:15px; cursor:pointer;}
+  .pendingMarker.assist{border-color:var(--green);}
+  .maplibregl-ctrl-bottom-right{bottom:calc(0.5cm + env(safe-area-inset-bottom, 0px)) !important;}
 </style>
 </head>
 <body>
@@ -243,6 +246,7 @@ const state = {
   socket: null,
   map: null,
   markers: { self: null, passenger: null },
+  pendingMarkers: [],
   isOnline: false,
   pendingRequest: null,   // входящий заказ/заявка, ждущая решения водителя
   requestQueue: [],       // очередь ожидающих заявок (когда показывается текущая)
@@ -352,10 +356,15 @@ if (state.token && state.user) startApp();
 
 /* ─── Жизненный цикл страницы ──────────────────────────────── */
 state.backgrounded = false;
+state.bgRecoveryTimer = false;
 window.addEventListener('pagehide', () => { state.backgrounded = true; });
 window.addEventListener('pageshow', () => { state.backgrounded = false; });
 document.addEventListener('visibilitychange', () => {
   state.backgrounded = document.visibilityState === 'hidden';
+  if (!state.backgrounded) {
+    state.bgRecoveryTimer = true;
+    setTimeout(() => { state.bgRecoveryTimer = false; }, 3000);
+  }
 });
 
 /* ════════════════════════ МАРШРУТЫ ════════════════════════ */
@@ -563,6 +572,7 @@ async function openSkipped() {
 /* ════════════════════════ SOCKET.IO ════════════════════════ */
 function updateConn(status) {
   if (state.backgrounded) return;
+  if (state.bgRecoveryTimer && status !== 'online') return;
   const bar = document.getElementById('connBar');
   if (!bar) return;
   bar.className = status === 'online' ? 'hidden' : '';
@@ -585,6 +595,7 @@ function connectSocket() {
   state.socket.on('connect', () => {
     if (!state.backgrounded) toast('Подключено к серверу');
     updateConn('online');
+    state.socket.emit('pending:list');
   });
   state.socket.on('disconnect', () => {
     if (!state.backgrounded) updateConn('offline');
@@ -648,6 +659,14 @@ function connectSocket() {
   // ─── Чат ─────────────────────────────────────────────────────────────
   state.socket.on('chat:message', (m) => appendChatMessage(m));
   state.socket.on('chat:history', (data) => { document.getElementById('chatMessages').innerHTML = ''; data.messages.forEach(appendChatMessage); });
+
+  // ─── Pending-заказы на карте ──────────────────────────────────────────
+  state.socket.on('pending:rides', (rides) => renderPendingMarkers('ride', rides));
+  state.socket.on('pending:assists', (assists) => renderPendingMarkers('assist', assists));
+  state.socket.on('pending:ride_created', (data) => addPendingMarker('ride', data));
+  state.socket.on('pending:assist_created', (data) => addPendingMarker('assist', data));
+  state.socket.on('pending:ride_removed', (data) => removePendingMarker('ride', data.rideId));
+  state.socket.on('pending:assist_removed', (data) => removePendingMarker('assist', data.assistId));
 }
 
 /* ════════════════════════ ВХОДЯЩИЙ ЗАКАЗ / ЗАЯВКА ════════════════════════ */
@@ -751,6 +770,42 @@ function playBeep() {
     g.gain.setValueAtTime(0.15, ctx.currentTime);
     o.start(); o.stop(ctx.currentTime + 0.25);
   } catch {}
+}
+
+/* ════════════════════════ PENDING-ЗАКАЗЫ НА КАРТЕ ════════════════════════ */
+function renderPendingMarkers(kind, items) {
+  clearPendingMarkers(kind);
+  items.forEach((item) => {
+    const el = document.createElement('div');
+    el.className = 'pendingMarker' + (kind === 'assist' ? ' assist' : '');
+    el.textContent = kind === 'assist' ? '🔧' : '🚕';
+    const marker = new maplibregl.Marker({ element: el })
+      .setLngLat([item.lon, item.lat])
+      .addTo(state.map);
+    state.pendingMarkers.push({ id: item.id, kind, marker });
+  });
+}
+function clearPendingMarkers(kind) {
+  state.pendingMarkers = state.pendingMarkers.filter((m) => {
+    if (m.kind === kind) { m.marker.remove(); return false; }
+    return true;
+  });
+}
+function addPendingMarker(kind, data) {
+  const el = document.createElement('div');
+  el.className = 'pendingMarker' + (kind === 'assist' ? ' assist' : '');
+  el.textContent = kind === 'assist' ? '🔧' : '🚕';
+  const marker = new maplibregl.Marker({ element: el })
+    .setLngLat([data.lon, data.lat])
+    .addTo(state.map);
+  state.pendingMarkers.push({ id: data.id, kind, marker });
+}
+function removePendingMarker(kind, id) {
+  const idx = state.pendingMarkers.findIndex((m) => m.kind === kind && m.id === id);
+  if (idx !== -1) {
+    state.pendingMarkers[idx].marker.remove();
+    state.pendingMarkers.splice(idx, 1);
+  }
 }
 
 /* ════════════════════════ НИЖНИЙ ЛИСТ АКТИВНОГО ЗАКАЗА ════════════════════════ */

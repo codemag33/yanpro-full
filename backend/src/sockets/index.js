@@ -150,6 +150,27 @@ function setupSockets(io) {
       } catch (e) { console.error('[driver:status db]', e.message); }
     });
 
+    // ─── Список активных заказов на карту ──────────────────────────────────
+    socket.on('pending:list', async () => {
+      if (role !== 'driver' && role !== 'mechanic') return;
+      try {
+        const rides = await db.query(
+          `SELECT id, ST_Y(pickup::geometry) AS lat, ST_X(pickup::geometry) AS lon
+           FROM rides WHERE status = 'searching'
+           ORDER BY created_at ASC LIMIT 50`
+        );
+        socket.emit('pending:rides', rides.rows);
+        if (role === 'mechanic') {
+          const assists = await db.query(
+            `SELECT id, ST_Y(pickup::geometry) AS lat, ST_X(pickup::geometry) AS lon
+             FROM assistance_requests WHERE status = 'waiting'
+             ORDER BY created_at ASC LIMIT 50`
+          );
+          socket.emit('pending:assists', assists.rows);
+        }
+      } catch (e) { console.error('[pending:list]', e.message); }
+    });
+
     // ─── Поездка: запрос от пассажира ───────────────────────────────────
     socket.on('ride:request', async (data) => {
       if (role !== 'passenger') return;
@@ -184,6 +205,8 @@ function setupSockets(io) {
         notifiedDriversMap.set(ride.id, notifiedDriverIds);
         socket.emit('ride:created', { rideId: ride.id, driversNotified: nearby.length });
         io.to('dispatch').emit('ride:created', { rideId: ride.id });
+        // Показываем заказ на картах всех онлайн-водителей
+        io.emit('pending:ride_created', { id: ride.id, lat: data.pickup.lat, lon: data.pickup.lon });
       } catch (err) {
         console.error('[ride:request] error', err);
         socket.emit('error:server', { context: 'ride:request' });
@@ -211,6 +234,7 @@ function setupSockets(io) {
         driverName: name,
       });
       io.to('dispatch').emit('ride:accepted', { rideId: ride.id });
+      io.emit('pending:ride_removed', { rideId: ride.id });
 
       // Уведомляем ТОЛЬКО тех водителей, которым отправляли заказ
       const notifiedIds = notifiedDriversMap.get(ride.id);
@@ -246,6 +270,7 @@ function setupSockets(io) {
       await ridesDb.cancelRide(data.rideId, data.reason);
       io.to(rideRoom(data.rideId)).emit('ride:cancelled', { rideId: data.rideId, by: role });
       io.to('dispatch').emit('ride:cancelled', { rideId: data.rideId });
+      io.emit('pending:ride_removed', { rideId: data.rideId });
       io.socketsLeave(rideRoom(data.rideId));
     });
 
@@ -297,6 +322,7 @@ function setupSockets(io) {
         });
       }
       socket.emit('assistance:created', { assistId: assist.id, mechanicsNotified: nearby.length });
+      io.emit('pending:assist_created', { id: assist.id, lat: data.pickup.lat, lon: data.pickup.lon });
     });
 
     socket.on('assistance:accept', async (data) => {
@@ -313,6 +339,7 @@ function setupSockets(io) {
       });
       socket.broadcast.emit('assistance:closed_for_others', { assistId: assist.id });
       io.to('dispatch').emit('assistance:accepted', { assistId: assist.id });
+      io.emit('pending:assist_removed', { assistId: assist.id });
     });
 
     socket.on('assistance:finish', async (data) => {
@@ -328,6 +355,7 @@ function setupSockets(io) {
       await assistDb.cancelAssist(data.assistId);
       io.to(assistRoom(data.assistId)).emit('assistance:cancelled', { assistId: data.assistId, by: role });
       io.to('dispatch').emit('assistance:cancelled', { assistId: data.assistId });
+      io.emit('pending:assist_removed', { assistId: data.assistId });
       io.socketsLeave(assistRoom(data.assistId));
     });
 

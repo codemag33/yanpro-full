@@ -276,10 +276,15 @@ if (state.token && state.user) startApp();
 
 /* ─── Жизненный цикл страницы ──────────────────────────────── */
 state.backgrounded = false;
+state.bgRecoveryTimer = false;
 window.addEventListener('pagehide', () => { state.backgrounded = true; });
 window.addEventListener('pageshow', () => { state.backgrounded = false; });
 document.addEventListener('visibilitychange', () => {
   state.backgrounded = document.visibilityState === 'hidden';
+  if (!state.backgrounded) {
+    state.bgRecoveryTimer = true;
+    setTimeout(() => { state.bgRecoveryTimer = false; }, 3000);
+  }
 });
 
 /* ════════════════════════ КАРТА ════════════════════════ */
@@ -451,6 +456,7 @@ document.getElementById('searchInput').oninput = (e) => {
 /* ════════════════════════ SOCKET.IO ════════════════════════ */
 function updateConn(status) {
   if (state.backgrounded) return;
+  if (state.bgRecoveryTimer && status !== 'online') return;
   const bar = document.getElementById('connBar');
   if (!bar) return;
   bar.className = status === 'online' ? 'hidden' : '';
