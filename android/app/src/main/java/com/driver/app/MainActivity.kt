@@ -127,6 +127,11 @@ class MainActivity : AppCompatActivity() {
     private val fallbackLat = 55.751244
     private val fallbackLon = 37.618423
 
+    // ─── Background tracking ─────────────────────────────────────────────────
+    private var backgrounded = false
+    private var bgRecoveryTimer: Handler? = null
+    private var bgRecoveryRunnable: Runnable? = null
+
     // ─── Permission launcher ─────────────────────────────────────────────────
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -1108,10 +1113,15 @@ class MainActivity : AppCompatActivity() {
         rideSocket = RideSocketManager(session.serverUrl, session.token ?: "")
 
         rideSocket.onConnected = {
-            runOnUiThread { showToast(R.string.toast_server_connected) }
+            runOnUiThread {
+                showToast(R.string.toast_server_connected)
+                rideSocket.requestPendingList()
+            }
         }
         rideSocket.onConnectError = { msg ->
-            runOnUiThread { Toast.makeText(this, getString(R.string.toast_server_error, session.serverUrl, msg), Toast.LENGTH_LONG).show() }
+            if (!backgrounded) {
+                runOnUiThread { Toast.makeText(this, getString(R.string.toast_server_error, session.serverUrl, msg), Toast.LENGTH_LONG).show() }
+            }
         }
         rideSocket.onAuthInvalid = {
             // Токен истёк или недействителен — отправляем обратно на экран входа.
@@ -1270,6 +1280,42 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        // ─── Pending orders on map ───────────────────────────────────────────
+        rideSocket.onPendingRides = { rides ->
+            runOnUiThread {
+                rides.forEach { r ->
+                    val rideId = r.optString("id")
+                    val lat = r.optDouble("lat")
+                    val lon = r.optDouble("lon")
+                    viewModel.addWaitingPassenger(rideId, "Пассажир", lat, lon, lat, lon)
+                    mapController.addWaitingPassenger(mapLibreMap, rideId, lat, lon, "Пассажир")
+                }
+            }
+        }
+        rideSocket.onPendingAssists = { assists ->
+            runOnUiThread {
+                assists.forEach { a ->
+                    val assistId = a.optString("id")
+                    val lat = a.optDouble("lat")
+                    val lon = a.optDouble("lon")
+                    viewModel.addWaitingAssistance(assistId, assistId, "Пассажир", lat, lon, "", "", "")
+                    mapController.addWaitingPassenger(mapLibreMap, assistId, lat, lon, "Пассажир")
+                }
+            }
+        }
+        rideSocket.onPendingRideRemoved = { rideId ->
+            runOnUiThread {
+                viewModel.removePassenger(rideId)
+                mapController.removePassenger(mapLibreMap, rideId)
+            }
+        }
+        rideSocket.onPendingAssistRemoved = { assistId ->
+            runOnUiThread {
+                viewModel.removeAssistance(assistId)
+                mapController.removePassenger(mapLibreMap, assistId)
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1312,14 +1358,14 @@ class MainActivity : AppCompatActivity() {
         val earnings = listOf("320 ₽", "450 ₽", "580 ₽", "410 ₽", "670 ₽").random()
         tvEarnings.text = earnings
 
-        // Countdown
-        var countdown = 15
+        // Countdown 30 seconds
+        var countdown = 30
         tvCountdown.text = "0:${String.format(Locale.US, "%02d", countdown)}"
         countdownHandler = Handler(Looper.getMainLooper())
         countdownRunnable = object : Runnable {
             override fun run() {
                 countdown--
-                if (countdown <= 0) { dialog.dismiss(); return }
+                if (countdown <= 0) { rideSocket.skipRide(rideId); dialog.dismiss(); return }
                 tvCountdown.text = "0:${String.format(Locale.US, "%02d", countdown)}"
                 countdownHandler?.postDelayed(this, 1000)
             }
@@ -1347,6 +1393,7 @@ class MainActivity : AppCompatActivity() {
 
         btnDecline.setOnClickListener {
             countdownHandler?.removeCallbacksAndMessages(null)
+            rideSocket.skipRide(rideId)
             dialog.dismiss()
         }
 
@@ -1578,8 +1625,21 @@ class MainActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     override fun onStart() { super.onStart(); binding.mapView.onStart() }
-    override fun onResume() { super.onResume(); binding.mapView.onResume() }
-    override fun onPause() { super.onPause(); binding.mapView.onPause() }
+    override fun onResume() {
+        super.onResume()
+        binding.mapView.onResume()
+        backgrounded = false
+        bgRecoveryTimer = Handler(Looper.getMainLooper()).apply {
+            postDelayed({ bgRecoveryRunnable = null }, 3000)
+        }
+    }
+    override fun onPause() {
+        super.onPause()
+        binding.mapView.onPause()
+        backgrounded = true
+        bgRecoveryRunnable?.let { bgRecoveryTimer?.removeCallbacks(it) }
+        bgRecoveryRunnable = null
+    }
     override fun onStop() { super.onStop(); binding.mapView.onStop() }
     override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState); binding.mapView.onSaveInstanceState(outState) }
     override fun onLowMemory() { super.onLowMemory(); binding.mapView.onLowMemory() }

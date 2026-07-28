@@ -74,6 +74,12 @@ class RideSocketManager(
 
     var onServerError: ((context: String) -> Unit)? = null
 
+    // ─── Callbacks: pending orders on map ──────────────────────────────────
+    var onPendingRides: ((rides: List<JSONObject>) -> Unit)? = null
+    var onPendingAssists: ((assists: List<JSONObject>) -> Unit)? = null
+    var onPendingRideRemoved: ((rideId: String) -> Unit)? = null
+    var onPendingAssistRemoved: ((assistId: String) -> Unit)? = null
+
     fun connect() {
         if (socket?.connected() == true) return
         socket?.disconnect()
@@ -203,6 +209,28 @@ class RideSocketManager(
                 onServerError?.invoke(data?.optString("context") ?: "unknown")
             }
 
+            // ─── Pending orders on map ──────────────────────────────────────
+            s.on("pending:rides") { args ->
+                val arr = args.firstOrNull()
+                if (arr is org.json.JSONArray) {
+                    val list = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                    onPendingRides?.invoke(list)
+                }
+            }
+            s.on("pending:assists") { args ->
+                val arr = args.firstOrNull()
+                if (arr is org.json.JSONArray) {
+                    val list = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                    onPendingAssists?.invoke(list)
+                }
+            }
+            s.on("pending:ride_removed") { args ->
+                (args.firstOrNull() as? JSONObject)?.let { onPendingRideRemoved?.invoke(it.optString("rideId")) }
+            }
+            s.on("pending:assist_removed") { args ->
+                (args.firstOrNull() as? JSONObject)?.let { onPendingAssistRemoved?.invoke(it.optString("assistId")) }
+            }
+
             s.connect()
         } catch (e: URISyntaxException) {
             Log.e(TAG, "Invalid server URL: $serverUrl", e)
@@ -269,6 +297,18 @@ class RideSocketManager(
 
     fun requestChatHistory(contextType: String, contextId: String) {
         socket?.emit("chat:history", JSONObject().put("contextType", contextType).put("contextId", contextId))
+    }
+
+    fun skipRide(rideId: String) {
+        socket?.emit("ride:skip", JSONObject().put("rideId", rideId))
+    }
+
+    fun skipAssistance(assistId: String) {
+        socket?.emit("assistance:skip", JSONObject().put("assistId", assistId))
+    }
+
+    fun requestPendingList() {
+        socket?.emit("pending:list")
     }
 
     fun disconnect() {
