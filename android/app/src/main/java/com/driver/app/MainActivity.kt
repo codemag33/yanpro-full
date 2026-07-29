@@ -739,6 +739,9 @@ class MainActivity : AppCompatActivity() {
     private fun setupActiveCard() {
         binding.btnActiveCancel.setOnClickListener { cancelActiveRide() }
         binding.btnActiveAction.setOnClickListener { onActiveAction() }
+        binding.btnActiveNavigate.setOnClickListener {
+            launchYandexNavigator(currentDestLat, currentDestLon)
+        }
         binding.btnActiveChat.setOnClickListener { openChat() }
     }
 
@@ -800,16 +803,19 @@ class MainActivity : AppCompatActivity() {
                 binding.btnActiveAction.text = getString(R.string.btn_start_ride)
                 binding.tvActiveStatus.text = getString(R.string.status_driving_to_pickup)
                 binding.btnActiveCancel.visibility = View.VISIBLE
+                binding.btnActiveNavigate.visibility = View.GONE
             }
             "in_progress" -> {
                 binding.btnActiveAction.text = getString(R.string.btn_finish_ride)
                 binding.tvActiveStatus.text = getString(R.string.status_in_ride)
                 binding.btnActiveCancel.visibility = View.VISIBLE
+                binding.btnActiveNavigate.visibility = View.VISIBLE
             }
             else -> {
                 binding.btnActiveAction.text = getString(R.string.btn_start_ride)
                 binding.tvActiveStatus.text = getString(R.string.status_accepted)
                 binding.btnActiveCancel.visibility = View.VISIBLE
+                binding.btnActiveNavigate.visibility = View.GONE
             }
         }
     }
