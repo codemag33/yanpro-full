@@ -88,6 +88,43 @@ class MainActivity : AppCompatActivity() {
 
     private var savedStateBundle: Bundle? = null
 
+    // Active ride state persistence (survives process death)
+    private val rideStatePrefs by lazy { getSharedPreferences("active_ride", MODE_PRIVATE) }
+
+    private fun saveRideState() {
+        rideStatePrefs.edit()
+            .putString("rideId", currentRideId)
+            .putString("assistId", currentAssistId)
+            .putString("rideStatus", currentRideStatus)
+            .putString("passengerName", currentPassengerName)
+            .putString("pickupAddr", currentPickupAddr)
+            .putString("destAddr", currentDestAddr)
+            .putFloat("pickupLat", currentPickupLat.toFloat())
+            .putFloat("pickupLon", currentPickupLon.toFloat())
+            .putFloat("destLat", currentDestLat.toFloat())
+            .putFloat("destLon", currentDestLon.toFloat())
+            .apply()
+    }
+
+    private fun loadRideState(): Boolean {
+        val rideId = rideStatePrefs.getString("rideId", null) ?: return false
+        currentRideId = rideId
+        currentAssistId = rideStatePrefs.getString("assistId", null)
+        currentRideStatus = rideStatePrefs.getString("rideStatus", "") ?: ""
+        currentPassengerName = rideStatePrefs.getString("passengerName", "") ?: ""
+        currentPickupAddr = rideStatePrefs.getString("pickupAddr", "") ?: ""
+        currentDestAddr = rideStatePrefs.getString("destAddr", "") ?: ""
+        currentPickupLat = rideStatePrefs.getFloat("pickupLat", 0f).toDouble()
+        currentPickupLon = rideStatePrefs.getFloat("pickupLon", 0f).toDouble()
+        currentDestLat = rideStatePrefs.getFloat("destLat", 0f).toDouble()
+        currentDestLon = rideStatePrefs.getFloat("destLon", 0f).toDouble()
+        return true
+    }
+
+    private fun clearRideState() {
+        rideStatePrefs.edit().clear().apply()
+    }
+
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
@@ -114,6 +151,10 @@ class MainActivity : AppCompatActivity() {
         MapLibre.getInstance(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        if (loadRideState()) {
+            // restored from local persistence — will call showActiveRide after map is ready
+        }
 
         initMap()
         setupTopBar()
@@ -159,6 +200,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         rideSocket.onRestoreRide = { data ->
+            if (currentRideId != null) return@onRestoreRide // already restored from local state
+
             val id = data.optString("id")
             val status = data.optString("status")
             val pName = data.optString("passengerName", "Пассажир")
@@ -340,6 +383,7 @@ class MainActivity : AppCompatActivity() {
                 mapFallbackTimer?.removeCallbacksAndMessages(null)
                 mapController.setupLayers(style)
                 rideSocket.requestPendingList()
+                if (currentRideId != null) showActiveRide()
 
                 if (hasLocationPermission()) {
                     enableLocationComponent()
@@ -610,6 +654,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         updateActiveCardButtons()
+        saveRideState()
     }
 
     private fun showActiveAssistance() {
@@ -662,6 +707,7 @@ class MainActivity : AppCompatActivity() {
                 rideSocket.startRide(rideId)
                 currentRideStatus = "in_progress"
                 updateActiveCardButtons()
+                saveRideState()
                 launchYandexNavigator(currentPickupLat, currentPickupLon)
             }
             "in_progress" -> {
@@ -683,6 +729,7 @@ class MainActivity : AppCompatActivity() {
         }
         clearActiveState()
         mapController.clearAll(mapLibreMap)
+        clearRideState()
     }
 
     private fun hideActiveCard() {
@@ -740,7 +787,7 @@ class MainActivity : AppCompatActivity() {
         val uri = android.net.Uri.parse(
             "yandexnavi://build_route_on_map?lat_to=$lat&lon_to=$lon&back_url=$backUrl"
         )
-        val intent = Intent(Intent.ACTION_VIEW, uri)
+        val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (intent.resolveActivity(packageManager) != null) {
             startActivity(intent)
         } else {
