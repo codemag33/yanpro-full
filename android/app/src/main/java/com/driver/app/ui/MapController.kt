@@ -59,6 +59,12 @@ class MapController(private val context: Context) {
     private val passengersLayerId = "passengers-layer"
     private val driverSourceId = "driver-source"
     private val driverLayerId = "driver-layer"
+    private val pendingSourceId = "pending-source"
+    private val pendingLayerId = "pending-layer"
+    private val incomingPickupSourceId = "incoming-pickup-source"
+    private val incomingPickupLayerId = "incoming-pickup-layer"
+    private val incomingDestSourceId = "incoming-dest-source"
+    private val incomingDestLayerId = "incoming-dest-layer"
 
     private var routeArrowAnimator: ValueAnimator? = null
     private var layersReady = false
@@ -251,7 +257,52 @@ class MapController(private val context: Context) {
             pointALayerId
         )
 
+        // Pending order markers (yellow dot)
+        style.addImage("circle-pending", createColoredCircleBitmap("#FFCC00"))
+        style.addSource(GeoJsonSource(pendingSourceId, FeatureCollection.fromFeatures(emptyArray())))
+        style.addLayerBelow(
+            SymbolLayer(pendingLayerId, pendingSourceId).withProperties(
+                PropertyFactory.iconImage("circle-pending"),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconSize(0.8f)
+            ),
+            pointALayerId
+        )
+
+        // Incoming request markers
+        style.addSource(GeoJsonSource(incomingPickupSourceId, FeatureCollection.fromFeatures(emptyArray())))
+        style.addLayerBelow(
+            SymbolLayer(incomingPickupLayerId, incomingPickupSourceId).withProperties(
+                PropertyFactory.iconImage("circle-waiting"),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconSize(1.2f)
+            ),
+            pointALayerId
+        )
+        style.addSource(GeoJsonSource(incomingDestSourceId, FeatureCollection.fromFeatures(emptyArray())))
+        style.addLayerBelow(
+            SymbolLayer(incomingDestLayerId, incomingDestSourceId).withProperties(
+                PropertyFactory.iconImage("point-b-marker"),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconSize(1.0f)
+            ),
+            pointALayerId
+        )
+
         layersReady = true
+    }
+
+    private fun createColoredCircleBitmap(color: String): Bitmap {
+        val size = 48; val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = android.graphics.Paint().apply { this.color = android.graphics.Color.parseColor(color); isAntiAlias = true }
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f - 4f, paint)
+        paint.color = android.graphics.Color.WHITE; paint.style = android.graphics.Paint.Style.STROKE; paint.strokeWidth = 3f
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f - 4f, paint)
+        return bmp
     }
 
     private fun createCircleMarkerImage(style: Style, name: String, color: String) {
@@ -448,17 +499,75 @@ class MapController(private val context: Context) {
         startArrowAnimation(map, points)
     }
 
-    // ─── Clear all ───────────────────────────────────────────────────────────
+    // ─── Draw route from GeoJSON geometry ─────────────────────────────────
+
+    fun drawRouteOnMap(map: MapLibreMap?, geometry: JSONObject) {
+        val coords = geometry.optJSONArray("coordinates") ?: return
+        val points = (0 until coords.length()).mapNotNull { i ->
+            val arr = coords.optJSONArray(i) ?: return@mapNotNull null
+            Point.fromLngLat(arr.optDouble(0), arr.optDouble(1))
+        }
+        if (points.size >= 2) drawRouteLine(map, points)
+    }
+
+    // ─── Pending markers ──────────────────────────────────────────────────
+
+    private val pendingFeatures = mutableMapOf<String, Feature>()
+
+    fun addPendingMarker(map: MapLibreMap?, id: String, lat: Double, lon: Double, type: String) {
+        if (!layersReady) return
+        val style = map?.style ?: return
+        val feature = Feature.fromGeometry(Point.fromLngLat(lon, lat)).apply {
+            addStringProperty("id", id)
+            addStringProperty("type", type)
+        }
+        pendingFeatures[id] = feature
+        refreshPendingSource(style)
+    }
+
+    fun removePendingMarker(map: MapLibreMap?, id: String) {
+        if (!layersReady) return
+        val style = map?.style ?: return
+        pendingFeatures.remove(id)
+        refreshPendingSource(style)
+    }
+
+    private fun refreshPendingSource(style: Style) {
+        style.getSourceAs<GeoJsonSource>(pendingSourceId)
+            ?.setGeoJson(FeatureCollection.fromFeatures(pendingFeatures.values.toList()))
+    }
+
+    // ─── Incoming request markers ─────────────────────────────────────────
+
+    fun setIncomingRequestOnMap(map: MapLibreMap?, pLat: Double, pLon: Double, dLat: Double, dLon: Double) {
+        if (!layersReady) return
+        val style = map?.style ?: return
+        style.getSourceAs<GeoJsonSource>(incomingPickupSourceId)
+            ?.setGeoJson(Feature.fromGeometry(Point.fromLngLat(pLon, pLat)))
+        style.getSourceAs<GeoJsonSource>(incomingDestSourceId)
+            ?.setGeoJson(Feature.fromGeometry(Point.fromLngLat(dLon, dLat)))
+    }
+
+    fun clearIncomingRequest(map: MapLibreMap?) {
+        if (!layersReady) return
+        val style = map?.style ?: return
+        style.getSourceAs<GeoJsonSource>(incomingPickupSourceId)
+            ?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
+        style.getSourceAs<GeoJsonSource>(incomingDestSourceId)
+            ?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
+    }
 
     fun clearAll(map: MapLibreMap?) {
         routeArrowAnimator?.cancel()
         pointA = null
         pointB = null
         passengerFeatures.clear()
+        pendingFeatures.clear()
         val style = map?.style ?: return
         listOf(
             pointASourceId, pointBSourceId, routeLineSourceId, routeArrowSourceId,
-            endpointASourceId, endpointBSourceId, passengersSourceId, driverSourceId
+            endpointASourceId, endpointBSourceId, passengersSourceId, driverSourceId,
+            pendingSourceId, incomingPickupSourceId, incomingDestSourceId
         ).forEach { id ->
             style.getSourceAs<GeoJsonSource>(id)?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
         }

@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_bottom_sheet"
+    android:orientation="vertical"
+    android:paddingTop="12dp">
+
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:background="@drawable/bg_drag_handle" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Меню"
+            android:textColor="@color/uber_text_primary"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvMenuAvatar"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:gravity="center"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:textColor="@color/uber_text_primary"
+                android:background="@drawable/bg_dot_pickup"
+                android:text="?" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvMenuName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/uber_text_primary"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:text="Водитель" />
+
+                <TextView
+                    android:id="@+id/tvMenuRole"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="@color/uber_text_secondary"
+                    android:textSize="13sp"
+                    android:text="driver" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="12dp"
+            android:background="@color/uber_divider" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Заработок за сегодня"
+            android:textColor="@color/uber_text_secondary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tvMenuEarnings"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/uber_green"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:text="— ₽" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="8dp"
+            android:background="@color/uber_divider" />
+
+        <Button
+            android:id="@+id/btnMenuEarningsPage"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:paddingStart="16dp"
+            android:text="💰 Заработок"
+            android:textColor="@color/uber_text_primary"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnMenuSkipped"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:paddingStart="16dp"
+            android:text="🕐 Пропущенные заказы"
+            android:textColor="@color/uber_text_primary"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnMenuSettings"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:paddingStart="16dp"
+            android:text="⚙ Настройки сервера"
+            android:textColor="@color/uber_text_primary"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnMenuLogout"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="start|center_vertical"
+            android:paddingStart="16dp"
+            android:text="🚪 Выйти"
+            android:textColor="#FF5252"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tvMenuVersion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:textColor="@color/uber_text_hint"
+            android:textSize="11sp"
+            android:text="v1.0" />
+    </LinearLayout>
+</LinearLayout>
