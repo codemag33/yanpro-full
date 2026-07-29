@@ -28,7 +28,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.driver.app.databinding.ActivityMainBinding
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -84,6 +86,8 @@ class MainActivity : AppCompatActivity() {
 
     private var chatDialog: Dialog? = null
 
+    private var savedStateBundle: Bundle? = null
+
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
@@ -97,6 +101,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        savedStateBundle = savedInstanceState
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         session = com.driver.app.data.SessionManager(this)
@@ -449,7 +454,7 @@ class MainActivity : AppCompatActivity() {
         startCountdown()
 
         lifecycleScope.launch {
-            val route = fetchRoute(pLon, pLat, dLon, dLat)
+            val route = withContext(Dispatchers.IO) { fetchRoute(pLon, pLat, dLon, dLat) }
             if (route != null && pendingRideId == rideId) {
                 runOnUiThread {
                     val km = route.optString("km", "—")
@@ -594,7 +599,7 @@ class MainActivity : AppCompatActivity() {
         binding.tvActiveDest.text = currentDestAddr.ifEmpty { "%.5f, %.5f".format(currentDestLat, currentDestLon) }
 
         lifecycleScope.launch {
-            val route = fetchRoute(currentPickupLon, currentPickupLat, currentDestLon, currentDestLat)
+            val route = withContext(Dispatchers.IO) { fetchRoute(currentPickupLon, currentPickupLat, currentDestLon, currentDestLat) }
             if (route != null) {
                 runOnUiThread {
                     binding.tvActiveRouteInfo.text = "${route.optString("km", "—")} · ${route.optString("min", "—")}"
@@ -735,9 +740,10 @@ class MainActivity : AppCompatActivity() {
         val uri = android.net.Uri.parse(
             "yandexnavi://build_route_on_map?lat_to=$lat&lon_to=$lon&back_url=$backUrl"
         )
-        val intent = Intent(Intent.ACTION_VIEW, uri)
+        val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (intent.resolveActivity(packageManager) != null) {
             startActivity(intent)
+            moveTaskToBack(true)
         } else {
             Toast.makeText(this, R.string.nav_yandex_not_installed, Toast.LENGTH_LONG).show()
             startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=ru.yandex.yandexnavi")))
@@ -977,11 +983,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun drawRoute(startLat: Double, startLon: Double, endLat: Double, endLon: Double) {
         lifecycleScope.launch {
-            val route = fetchRoute(startLon, startLat, endLon, endLat)
+            val route = withContext(Dispatchers.IO) { fetchRoute(startLon, startLat, endLon, endLat) }
             if (route != null) {
                 val geom = route.optJSONObject("geometry")
                 if (geom != null) {
-                    mapController.drawRouteOnMap(mapLibreMap, geom)
+                    runOnUiThread { mapController.drawRouteOnMap(mapLibreMap, geom) }
                 }
             }
         }
@@ -989,10 +995,25 @@ class MainActivity : AppCompatActivity() {
 
     // ─── Lifecycle ─────────────────────────────────────────────────────────
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("rideId", currentRideId)
+        outState.putString("rideStatus", currentRideStatus)
+        outState.putString("assistId", currentAssistId)
+        outState.putString("passengerName", currentPassengerName)
+        outState.putString("pickupAddr", currentPickupAddr)
+        outState.putString("destAddr", currentDestAddr)
+        outState.putDouble("pickupLat", currentPickupLat)
+        outState.putDouble("pickupLon", currentPickupLon)
+        outState.putDouble("destLat", currentDestLat)
+        outState.putDouble("destLon", currentDestLon)
+    }
+
     override fun onResume() {
         super.onResume()
         binding.mapView.onResume()
         backgrounded = false
+        savedStateBundle?.let { restoreSavedState(it); savedStateBundle = null }
     }
 
     override fun onPause() {
@@ -1006,6 +1027,21 @@ class MainActivity : AppCompatActivity() {
         binding.mapView.onDestroy()
         locationBroadcastHandler.removeCallbacksAndMessages(null)
         stopCountdown()
+    }
+
+    private fun restoreSavedState(bundle: Bundle) {
+        val rideId = bundle.getString("rideId") ?: return
+        currentRideId = rideId
+        currentRideStatus = bundle.getString("rideStatus", "")
+        currentAssistId = bundle.getString("assistId")
+        currentPassengerName = bundle.getString("passengerName", "")
+        currentPickupAddr = bundle.getString("pickupAddr", "")
+        currentDestAddr = bundle.getString("destAddr", "")
+        currentPickupLat = bundle.getDouble("pickupLat")
+        currentPickupLon = bundle.getDouble("pickupLon")
+        currentDestLat = bundle.getDouble("destLat")
+        currentDestLon = bundle.getDouble("destLon")
+        showActiveRide()
     }
 
     override fun onLowMemory() {
