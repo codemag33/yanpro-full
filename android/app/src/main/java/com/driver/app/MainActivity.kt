@@ -79,6 +79,7 @@ class MainActivity : AppCompatActivity() {
     private var currentDestLat = 0.0
     private var currentDestLon = 0.0
     private var currentRideStatus = ""
+    private var navigatedToPickup = false
 
     private var requestTimerHandler: Handler? = null
     private var requestTimerRunnable: Runnable? = null
@@ -129,6 +130,7 @@ class MainActivity : AppCompatActivity() {
             .putFloat("pickupLon", currentPickupLon.toFloat())
             .putFloat("destLat", currentDestLat.toFloat())
             .putFloat("destLon", currentDestLon.toFloat())
+            .putBoolean("navigatedToPickup", navigatedToPickup)
             .apply()
     }
 
@@ -144,6 +146,7 @@ class MainActivity : AppCompatActivity() {
         currentPickupLon = rideStatePrefs.getFloat("pickupLon", 0f).toDouble()
         currentDestLat = rideStatePrefs.getFloat("destLat", 0f).toDouble()
         currentDestLon = rideStatePrefs.getFloat("destLon", 0f).toDouble()
+        navigatedToPickup = rideStatePrefs.getBoolean("navigatedToPickup", false)
         return true
     }
 
@@ -739,9 +742,6 @@ class MainActivity : AppCompatActivity() {
     private fun setupActiveCard() {
         binding.btnActiveCancel.setOnClickListener { cancelActiveRide() }
         binding.btnActiveAction.setOnClickListener { onActiveAction() }
-        binding.btnActiveNavigate.setOnClickListener {
-            launchYandexNavigator(currentDestLat, currentDestLon)
-        }
         binding.btnActiveChat.setOnClickListener { openChat() }
     }
 
@@ -800,22 +800,24 @@ class MainActivity : AppCompatActivity() {
     private fun updateActiveCardButtons() {
         when (currentRideStatus) {
             "accepted" -> {
-                binding.btnActiveAction.text = getString(R.string.btn_start_ride)
-                binding.tvActiveStatus.text = getString(R.string.status_driving_to_pickup)
+                if (navigatedToPickup) {
+                    binding.btnActiveAction.text = "Приехал к клиенту"
+                    binding.tvActiveStatus.text = "Заберите пассажира"
+                } else {
+                    binding.btnActiveAction.text = "Навигатор"
+                    binding.tvActiveStatus.text = getString(R.string.status_driving_to_pickup)
+                }
                 binding.btnActiveCancel.visibility = View.VISIBLE
-                binding.btnActiveNavigate.visibility = View.GONE
             }
             "in_progress" -> {
                 binding.btnActiveAction.text = getString(R.string.btn_finish_ride)
                 binding.tvActiveStatus.text = getString(R.string.status_in_ride)
                 binding.btnActiveCancel.visibility = View.VISIBLE
-                binding.btnActiveNavigate.visibility = View.VISIBLE
             }
             else -> {
-                binding.btnActiveAction.text = getString(R.string.btn_start_ride)
+                binding.btnActiveAction.text = "Навигатор"
                 binding.tvActiveStatus.text = getString(R.string.status_accepted)
                 binding.btnActiveCancel.visibility = View.VISIBLE
-                binding.btnActiveNavigate.visibility = View.GONE
             }
         }
     }
@@ -835,13 +837,22 @@ class MainActivity : AppCompatActivity() {
 
         when (currentRideStatus) {
             "accepted", "" -> {
-                rideSocket.startRide(rideId)
-                currentRideStatus = "in_progress"
-                updateActiveCardButtons()
-                saveRideState()
-                launchYandexNavigator(currentPickupLat, currentPickupLon)
+                if (!navigatedToPickup) {
+                    // Step 1: open navigator to pickup
+                    navigatedToPickup = true
+                    launchYandexNavigator(currentPickupLat, currentPickupLon)
+                    updateActiveCardButtons()
+                } else {
+                    // Step 2: arrived at pickup — start ride + navigate to destination
+                    rideSocket.startRide(rideId)
+                    currentRideStatus = "in_progress"
+                    updateActiveCardButtons()
+                    saveRideState()
+                    launchYandexNavigator(currentDestLat, currentDestLon)
+                }
             }
             "in_progress" -> {
+                // Step 3: finish ride — show price modal
                 showPriceModal(rideId)
             }
         }
@@ -892,6 +903,7 @@ class MainActivity : AppCompatActivity() {
         currentRideId = null
         currentAssistId = null
         currentRideStatus = ""
+        navigatedToPickup = false
         hideActiveCard()
         hideRequestCard()
     }
