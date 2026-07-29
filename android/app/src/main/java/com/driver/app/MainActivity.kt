@@ -124,7 +124,7 @@ class MainActivity : AppCompatActivity() {
     // ─── Ride Socket ───────────────────────────────────────────────────────
 
     private fun setupRideSocket() {
-        rideSocket = RideSocketManager(session.serverUrl, session.token)
+        rideSocket = RideSocketManager(session.serverUrl, session.token!!)
 
         rideSocket.onConnected = {
             Log.d(TAG, "socket connected")
@@ -615,24 +615,24 @@ class MainActivity : AppCompatActivity() {
         binding.tvActivePassenger.text = "🔧 $currentPassengerName"
         binding.tvActivePickup.text = currentPickupAddr.ifEmpty { "%.5f, %.5f".format(currentPickupLat, currentPickupLon) }
         binding.tvActiveDest.visibility = View.GONE
-        binding.tvActiveAction.text = "Завершить"
+        binding.btnActiveAction.text = "Завершить"
         binding.btnActiveCancel.visibility = View.VISIBLE
     }
 
     private fun updateActiveCardButtons() {
         when (currentRideStatus) {
             "accepted" -> {
-                binding.tvActiveAction.text = "Начать поездку"
+                binding.btnActiveAction.text = "Начать поездку"
                 binding.tvActiveStatus.text = "Едем за пассажиром"
                 binding.btnActiveCancel.visibility = View.VISIBLE
             }
             "in_progress" -> {
-                binding.tvActiveAction.text = "Завершить поездку"
+                binding.btnActiveAction.text = "Завершить поездку"
                 binding.tvActiveStatus.text = "В поездке"
                 binding.btnActiveCancel.visibility = View.VISIBLE
             }
             else -> {
-                binding.tvActiveAction.text = "Начать поездку"
+                binding.btnActiveAction.text = "Начать поездку"
                 binding.tvActiveStatus.text = "Принят"
                 binding.btnActiveCancel.visibility = View.VISIBLE
             }
