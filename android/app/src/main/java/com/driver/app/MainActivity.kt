@@ -63,6 +63,7 @@ class MainActivity : AppCompatActivity() {
     private var mapStyleLoaded = false
 
     private var backgrounded = false
+    private var isOnline = false
 
     private var currentRideId: String? = null
     private var currentAssistId: String? = null
@@ -176,7 +177,7 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "socket connected")
             runOnUiThread {
                 binding.connBar.visibility = View.GONE
-                rideSocket.setOnline(true)
+                rideSocket.setOnline(isOnline)
                 rideSocket.requestPendingList()
                 fetchEarnings()
             }
@@ -447,8 +448,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupTopBar() {
         binding.chipOnline.setOnClickListener {
-            rideSocket.setOnline(true)
-            Toast.makeText(this, R.string.toast_went_online, Toast.LENGTH_SHORT).show()
+            isOnline = !isOnline
+            rideSocket.setOnline(isOnline)
+            binding.onlineDot.setBackgroundResource(if (isOnline) R.drawable.bg_online_dot else R.drawable.bg_offline_dot)
+            binding.tvOnlineStatus.text = getString(if (isOnline) R.string.status_online else R.string.status_offline)
+            Toast.makeText(this, if (isOnline) R.string.toast_went_online else R.string.toast_went_offline, Toast.LENGTH_SHORT).show()
         }
 
         binding.btnHistory.setOnClickListener {
