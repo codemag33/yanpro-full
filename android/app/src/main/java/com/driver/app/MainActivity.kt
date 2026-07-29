@@ -32,6 +32,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.driver.app.databinding.ActivityMainBinding
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -62,6 +63,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var rideSocket: RideSocketManager
     private var mapLibreMap: MapLibreMap? = null
     private val mapController by lazy { com.driver.app.ui.MapController(this) }
+    private val sheetBehavior by lazy { BottomSheetBehavior.from(binding.bottomSheet) }
 
     private var mapFallbackTimer: Handler? = null
     private var mapStyleLoaded = false
@@ -568,6 +570,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.requestCard.visibility = View.VISIBLE
         binding.activeCard.visibility = View.GONE
+        sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
         binding.tvRequestBadge.text = getString(R.string.badge_new_order)
         binding.tvRequestBadge.setTextColor(Color.parseColor("#FFC107"))
         binding.tvRequestBadge.visibility = View.VISIBLE
@@ -621,6 +624,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.requestCard.visibility = View.VISIBLE
         binding.activeCard.visibility = View.GONE
+        sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
         binding.tvRequestBadge.text = getString(R.string.badge_assistance)
         binding.tvRequestBadge.setTextColor(Color.parseColor("#4CAF50"))
         binding.tvRequestBadge.visibility = View.VISIBLE
@@ -731,6 +735,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideRequestCard() {
         binding.requestCard.visibility = View.GONE
+        sheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
         stopCountdown()
         pendingRideId = null
         pendingAssistId = null
@@ -748,6 +753,7 @@ class MainActivity : AppCompatActivity() {
     private fun showActiveRide() {
         binding.activeCard.visibility = View.VISIBLE
         binding.requestCard.visibility = View.GONE
+        sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
         stopCountdown()
         binding.tvRequestBadge.visibility = View.GONE
         binding.tvRequestAvatar.visibility = View.GONE
@@ -781,6 +787,7 @@ class MainActivity : AppCompatActivity() {
     private fun showActiveAssistance() {
         binding.activeCard.visibility = View.VISIBLE
         binding.requestCard.visibility = View.GONE
+        sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
         stopCountdown()
         binding.tvRequestBadge.visibility = View.GONE
         binding.tvRequestAvatar.visibility = View.GONE
@@ -897,6 +904,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideActiveCard() {
         binding.activeCard.visibility = View.GONE
+        sheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
     }
 
     private fun clearActiveState() {
