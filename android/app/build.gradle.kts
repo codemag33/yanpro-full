@@ -42,7 +42,7 @@ android {
 
 dependencies {
     // ─── MapLibre Native SDK ─────────────────────────────────────────────────
-    implementation("org.maplibre.gl:android-sdk:11.5.2")
+    implementation("org.maplibre.gl:android-sdk:11.5.0")
     // Примечание: НЕ используем org.maplibre.gl:android-plugin-annotation-v9 —
     // у него известная несовместимость с android-sdk 11.2.0+ (падает с
     // NoClassDefFoundError на com.mapbox.android.gestures.AndroidGesturesManager,
