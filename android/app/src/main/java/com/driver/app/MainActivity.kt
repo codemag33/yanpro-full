@@ -231,8 +231,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        rideSocket.onRestoreRide = { data ->
-            if (currentRideId != null) return@onRestoreRide // already restored from local state
+        rideSocket.onRestoreRide = restoreRide@{ data ->
+            if (currentRideId != null) return@restoreRide // already restored from local state
 
             val id = data.optString("id")
             val status = data.optString("status")
