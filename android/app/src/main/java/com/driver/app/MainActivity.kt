@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Dialog
 import android.app.PendingIntent
+import android.app.PictureInPictureParams
 import android.app.RemoteAction
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -842,7 +843,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun cancelActiveRide() {
         val reasons = arrayOf(
-            "driver_cancel",
             "passenger_unreachable",
             "cant_reach_address",
             "personal_circumstances",
