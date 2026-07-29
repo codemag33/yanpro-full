@@ -122,6 +122,19 @@
     <string name="error_unknown">неизвестная ошибка</string>
     <string name="error_invalid_server_address">Некорректный адрес сервера: %1$s</string>
 
+    <!-- ─── Request badges ───────────────────────────────────────────────── -->
+    <string name="badge_new_order">НОВЫЙ ЗАКАЗ</string>
+    <string name="badge_assistance">ПОМОЩЬ НА ДОРОГЕ</string>
+
+    <!-- ─── Active ride ───────────────────────────────────────────────────── -->
+    <string name="btn_start_ride">Начать поездку</string>
+    <string name="btn_finish_ride">Завершить поездку</string>
+    <string name="btn_complete">Завершить</string>
+    <string name="btn_cancel_ride">Отменить поездку</string>
+    <string name="status_driving_to_pickup">Едем за пассажиром</string>
+    <string name="status_in_ride">В поездке</string>
+    <string name="status_accepted">Принят</string>
+
     <!-- ─── History ────────────────────────────────────────────────────────── -->
     <string name="history_title">История заказов</string>
     <string name="history_back">Назад</string>

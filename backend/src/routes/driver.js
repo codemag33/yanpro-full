@@ -104,4 +104,23 @@ router.get('/skipped', requireAuth, requireRole('driver', 'mechanic'), async (re
   }
 });
 
+// График заработков за N дней — для страницы заработков.
+router.get('/earnings-history', requireAuth, requireRole('driver', 'mechanic'), async (req, res) => {
+  try {
+    const days = Math.min(parseInt(req.query.days) || 7, 30);
+    const history = await db.query(
+      `SELECT DATE(finished_at) as date, COUNT(*) as count, COALESCE(SUM(price), 0) as earnings
+       FROM rides
+       WHERE driver_id = $1 AND status = 'completed' AND finished_at >= now() - interval '1 day' * $2
+       GROUP BY DATE(finished_at)
+       ORDER BY date ASC`,
+      [req.user.id, days]
+    );
+    res.json({ days: history.rows });
+  } catch (err) {
+    console.error('[driver/earnings-history]', err);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 module.exports = router;

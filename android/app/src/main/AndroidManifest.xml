@@ -63,6 +63,12 @@
             android:exported="false"
             android:theme="@style/Theme.DriverApp" />
 
+        <!-- ─── Заработки ──────────────────────────────────────────────── -->
+        <activity
+            android:name=".EarningsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.DriverApp" />
+
         <!-- ─── BroadcastReceiver для кнопки PiP «Завершить заказ» ──────── -->
         <!--
             android:exported="false" — принимает только внутренние Intent-ы

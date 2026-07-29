@@ -292,6 +292,18 @@ class MapController(private val context: Context) {
             pointALayerId
         )
 
+        // Passenger live location marker
+        style.addSource(GeoJsonSource(passengerMarkerSourceId, FeatureCollection.fromFeatures(emptyArray())))
+        style.addLayerBelow(
+            SymbolLayer(passengerMarkerLayerId, passengerMarkerSourceId).withProperties(
+                PropertyFactory.iconImage("circle-active"),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconSize(1.4f)
+            ),
+            pointALayerId
+        )
+
         layersReady = true
     }
 
@@ -557,6 +569,28 @@ class MapController(private val context: Context) {
             ?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
     }
 
+    // ─── Passenger marker (live location) ───────────────────────────────
+    private val passengerMarkerSourceId = "passenger-marker-source"
+    private val passengerMarkerLayerId = "passenger-marker-layer"
+
+    fun setPassengerMarker(map: MapLibreMap?, lat: Double, lon: Double) {
+        if (!layersReady) return
+        val style = map?.style ?: return
+        style.getSourceAs<GeoJsonSource>(passengerMarkerSourceId)
+            ?.setGeoJson(Feature.fromGeometry(Point.fromLngLat(lon, lat)))
+    }
+
+    fun clearPassengerMarker(map: MapLibreMap?) {
+        if (!layersReady) return
+        val style = map?.style ?: return
+        style.getSourceAs<GeoJsonSource>(passengerMarkerSourceId)
+            ?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
+    }
+
+    fun flyTo(map: MapLibreMap?, lat: Double, lon: Double) {
+        map?.easeCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 15.0), 1000)
+    }
+
     fun clearAll(map: MapLibreMap?) {
         routeArrowAnimator?.cancel()
         pointA = null
@@ -567,7 +601,8 @@ class MapController(private val context: Context) {
         listOf(
             pointASourceId, pointBSourceId, routeLineSourceId, routeArrowSourceId,
             endpointASourceId, endpointBSourceId, passengersSourceId, driverSourceId,
-            pendingSourceId, incomingPickupSourceId, incomingDestSourceId
+            pendingSourceId, incomingPickupSourceId, incomingDestSourceId,
+            passengerMarkerSourceId
         ).forEach { id ->
             style.getSourceAs<GeoJsonSource>(id)?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
         }

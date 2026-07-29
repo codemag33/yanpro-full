@@ -22,6 +22,9 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -81,6 +84,27 @@ class MainActivity : AppCompatActivity() {
     private var requestStartTime = 0L
     private var pendingRideId: String? = null
     private var pendingAssistId: String? = null
+    private var currentRequestType = "" // "ride" or "assist"
+
+    // Request queue (like PWA)
+    private data class QueuedRequest(val type: String, val rideId: String?, val assistId: String?,
+        val pName: String, val pLat: Double, val pLon: Double, val dLat: Double, val dLon: Double,
+        val pAddr: String, val dAddr: String, val carMake: String = "", val bType: String = "",
+        val phone: String = "", val desc: String = "")
+    private val requestQueue = ArrayDeque<QueuedRequest>()
+
+    // Breakdown type labels (like PWA)
+    private val breakdownLabels = mapOf(
+        "battery" to "Не заводится / аккумулятор",
+        "tire" to "Прокол колеса",
+        "fuel" to "Нет топлива",
+        "lockout" to "Заблокирован в машине",
+        "other" to "Другое"
+    )
+
+    // Route info for price calculation
+    private var lastRouteDistance = 0.0 // km
+    private var lastRouteDuration = 0.0 // seconds
 
     private var locationBroadcastHandler = Handler(Looper.getMainLooper())
     private var locationBroadcastRunnable: Runnable? = null
@@ -176,7 +200,12 @@ class MainActivity : AppCompatActivity() {
         rideSocket.onConnected = {
             Log.d(TAG, "socket connected")
             runOnUiThread {
-                binding.connBar.visibility = View.GONE
+                binding.connBar.visibility = View.VISIBLE
+                binding.connBar.setBackgroundColor(Color.parseColor("#4CAF50"))
+                binding.tvConnStatus.text = "✅ Подключено"
+                Handler(Looper.getMainLooper()).postDelayed({
+                    binding.connBar.visibility = View.GONE
+                }, 2000)
                 rideSocket.setOnline(isOnline)
                 rideSocket.requestPendingList()
                 fetchEarnings()
@@ -188,6 +217,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 binding.connBar.visibility = View.VISIBLE
                 binding.connBar.setBackgroundColor(Color.parseColor("#FF9800"))
+                binding.tvConnStatus.text = "⏳ Переподключение..."
             }
         }
 
@@ -259,6 +289,17 @@ class MainActivity : AppCompatActivity() {
                 if (rideId == pendingRideId) {
                     Toast.makeText(this, "Заказ уже принят другим водителем", Toast.LENGTH_SHORT).show()
                     hideRequestCard()
+                    showNextFromQueue()
+                }
+            }
+        }
+
+        rideSocket.onRideClosedForOthers = { rideId ->
+            runOnUiThread {
+                if (rideId == pendingRideId) {
+                    Toast.makeText(this, "Заказ закрыт для других водителей", Toast.LENGTH_SHORT).show()
+                    hideRequestCard()
+                    showNextFromQueue()
                 }
             }
         }
@@ -268,8 +309,27 @@ class MainActivity : AppCompatActivity() {
                 if (assistId == pendingAssistId) {
                     Toast.makeText(this, "Заявка уже принята другим мастером", Toast.LENGTH_SHORT).show()
                     hideRequestCard()
+                    showNextFromQueue()
                 }
             }
+        }
+
+        rideSocket.onAssistClosedForOthers = { assistId ->
+            runOnUiThread {
+                if (assistId == pendingAssistId) {
+                    Toast.makeText(this, "Заявка закрыта для других мастеров", Toast.LENGTH_SHORT).show()
+                    hideRequestCard()
+                    showNextFromQueue()
+                }
+            }
+        }
+
+        rideSocket.onPassengerLocation = { lat, lon ->
+            runOnUiThread { mapController.setPassengerMarker(mapLibreMap, lat, lon) }
+        }
+
+        rideSocket.onAssistPassengerLocation = { lat, lon ->
+            runOnUiThread { mapController.setPassengerMarker(mapLibreMap, lat, lon) }
         }
 
         rideSocket.onRideAccepted = { rideId, _, _ ->
@@ -290,6 +350,8 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 currentRideStatus = "in_progress"
                 updateActiveCardButtons()
+                drawRoute(currentPickupLat, currentPickupLon, currentDestLat, currentDestLon)
+                mapController.flyTo(mapLibreMap, currentDestLat, currentDestLon)
             }
         }
 
@@ -297,7 +359,9 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 Toast.makeText(this, R.string.toast_order_finished, Toast.LENGTH_SHORT).show()
                 clearActiveState()
+                clearRideState()
                 mapController.clearAll(mapLibreMap)
+                fetchEarnings()
             }
         }
 
@@ -306,6 +370,7 @@ class MainActivity : AppCompatActivity() {
                 currentRideId = null
                 hideActiveCard()
                 clearActiveState()
+                clearRideState()
                 mapController.clearAll(mapLibreMap)
                 if (by != session.userId) {
                     Toast.makeText(this, "Пассажир отменил поездку", Toast.LENGTH_SHORT).show()
@@ -317,7 +382,9 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 Toast.makeText(this, R.string.toast_assistance_finished, Toast.LENGTH_SHORT).show()
                 clearActiveState()
+                clearRideState()
                 mapController.clearAll(mapLibreMap)
+                fetchEarnings()
             }
         }
 
@@ -326,6 +393,7 @@ class MainActivity : AppCompatActivity() {
                 currentAssistId = null
                 hideActiveCard()
                 clearActiveState()
+                clearRideState()
                 mapController.clearAll(mapLibreMap)
                 if (by != session.userId) {
                     Toast.makeText(this, "Пассажир отменил заявку", Toast.LENGTH_SHORT).show()
@@ -477,10 +545,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun showIncomingRideRequest(rideId: String, pName: String, pLat: Double, pLon: Double,
                                          dLat: Double, dLon: Double, pAddr: String, dAddr: String) {
-        if (currentRideId != null || currentAssistId != null) return
+        if (currentRideId != null || currentAssistId != null) {
+            // Queue the request if one is already showing
+            requestQueue.addLast(QueuedRequest("ride", rideId, null, pName, pLat, pLon, dLat, dLon, pAddr, dAddr))
+            return
+        }
 
         pendingRideId = rideId
         pendingAssistId = null
+        currentRequestType = "ride"
         currentPassengerName = pName
         currentPickupAddr = pAddr
         currentDestAddr = dAddr
@@ -491,10 +564,17 @@ class MainActivity : AppCompatActivity() {
 
         binding.requestCard.visibility = View.VISIBLE
         binding.activeCard.visibility = View.GONE
+        binding.tvRequestBadge.text = getString(R.string.badge_new_order)
+        binding.tvRequestBadge.setTextColor(Color.parseColor("#FFC107"))
+        binding.tvRequestBadge.visibility = View.VISIBLE
+        val initial = pName.firstOrNull()?.toString() ?: "?"
+        binding.tvRequestAvatar.text = initial
+        binding.tvRequestAvatar.visibility = View.VISIBLE
         binding.tvRequestPassengerName.text = pName
         binding.tvRequestPickup.text = pAddr.ifEmpty { "Подача: %.5f, %.5f".format(pLat, pLon) }
         binding.tvRequestDest.text = dAddr.ifEmpty { "Куда: %.5f, %.5f".format(dLat, dLon) }
         binding.tvRequestRouteInfo.text = "— км · — мин"
+        binding.tvRequestDest.visibility = View.VISIBLE
 
         mapController.setIncomingRequestOnMap(mapLibreMap, pLat, pLon, dLat, dLon)
 
@@ -505,6 +585,8 @@ class MainActivity : AppCompatActivity() {
             val route = withContext(Dispatchers.IO) { fetchRoute(pLon, pLat, dLon, dLat) }
             if (route != null && pendingRideId == rideId) {
                 runOnUiThread {
+                    lastRouteDistance = route.optDouble("distance", 0.0) / 1000.0
+                    lastRouteDuration = route.optDouble("duration", 0.0)
                     val km = route.optString("km", "—")
                     val min = route.optString("min", "—")
                     binding.tvRequestRouteInfo.text = "$km · $min"
@@ -519,10 +601,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun showIncomingAssistRequest(assistId: String, pName: String, pLat: Double, pLon: Double,
                                            carMake: String, bType: String, phone: String, desc: String) {
-        if (currentRideId != null || currentAssistId != null) return
+        if (currentRideId != null || currentAssistId != null) {
+            requestQueue.addLast(QueuedRequest("assist", null, assistId, pName, pLat, pLon, 0.0, 0.0, "", "", carMake, bType, phone, desc))
+            return
+        }
 
         pendingAssistId = assistId
         pendingRideId = null
+        currentRequestType = "assist"
         currentPassengerName = pName
         currentPickupAddr = "$carMake, $phone"
         currentDestAddr = desc
@@ -531,10 +617,17 @@ class MainActivity : AppCompatActivity() {
 
         binding.requestCard.visibility = View.VISIBLE
         binding.activeCard.visibility = View.GONE
-        binding.tvRequestPassengerName.text = "🔧 $pName"
-        binding.tvRequestPickup.text = "Адрес: %.5f, %.5f".format(pLat, pLon)
-        binding.tvRequestDest.text = if (desc.isNotEmpty()) desc else "Поломка"
-        binding.tvRequestRouteInfo.text = if (carMake.isNotEmpty()) carMake else ""
+        binding.tvRequestBadge.text = getString(R.string.badge_assistance)
+        binding.tvRequestBadge.setTextColor(Color.parseColor("#4CAF50"))
+        binding.tvRequestBadge.visibility = View.VISIBLE
+        binding.tvRequestPassengerName.text = pName
+        val breakdownLabel = breakdownLabels[bType] ?: bType
+        binding.tvRequestPickup.text = "$breakdownLabel · $carMake"
+        binding.tvRequestDest.text = if (desc.isNotEmpty()) desc else ""
+        binding.tvRequestDest.visibility = if (desc.isNotEmpty()) View.VISIBLE else View.GONE
+        binding.tvRequestRouteInfo.text = phone
+
+        mapController.setIncomingRequestOnMap(mapLibreMap, pLat, pLon, 0.0, 0.0)
 
         vibrateAndBeep()
         startCountdown()
@@ -560,6 +653,17 @@ class MainActivity : AppCompatActivity() {
         pendingRideId?.let { rideSocket.skipRide(it) }
         pendingAssistId?.let { rideSocket.skipAssistance(it) }
         hideRequestCard()
+        showNextFromQueue()
+    }
+
+    private fun showNextFromQueue() {
+        if (requestQueue.isEmpty()) return
+        val next = requestQueue.removeFirst()
+        if (next.type == "ride") {
+            showIncomingRideRequest(next.rideId!!, next.pName, next.pLat, next.pLon, next.dLat, next.dLon, next.pAddr, next.dAddr)
+        } else {
+            showIncomingAssistRequest(next.assistId!!, next.pName, next.pLat, next.pLon, next.carMake, next.bType, next.phone, next.desc)
+        }
     }
 
     private fun vibrateAndBeep() {
@@ -641,22 +745,31 @@ class MainActivity : AppCompatActivity() {
         binding.activeCard.visibility = View.VISIBLE
         binding.requestCard.visibility = View.GONE
         stopCountdown()
+        binding.tvRequestBadge.visibility = View.GONE
+        binding.tvRequestAvatar.visibility = View.GONE
+        mapController.clearIncomingRequest(mapLibreMap)
 
+        val initial = currentPassengerName.firstOrNull()?.toString() ?: "?"
+        binding.tvActiveAvatar.text = initial
         binding.tvActivePassenger.text = currentPassengerName
         binding.tvActivePickup.text = currentPickupAddr.ifEmpty { "%.5f, %.5f".format(currentPickupLat, currentPickupLon) }
         binding.tvActiveDest.text = currentDestAddr.ifEmpty { "%.5f, %.5f".format(currentDestLat, currentDestLon) }
 
+        // Route to pickup (accepted phase)
         lifecycleScope.launch {
-            val route = withContext(Dispatchers.IO) { fetchRoute(currentPickupLon, currentPickupLat, currentDestLon, currentDestLat) }
+            val route = withContext(Dispatchers.IO) { fetchRoute(currentPickupLon, currentPickupLat, currentPickupLon, currentPickupLat) }
             if (route != null) {
                 runOnUiThread {
-                    binding.tvActiveRouteInfo.text = "${route.optString("km", "—")} · ${route.optString("min", "—")}"
+                    lastRouteDistance = route.optDouble("distance", 0.0) / 1000.0
+                    lastRouteDuration = route.optDouble("duration", 0.0)
+                    binding.tvActiveRouteInfo.text = "🚗 ${route.optString("km", "—")} · ${route.optString("min", "—")}"
                     val geom = route.optJSONObject("geometry")
                     if (geom != null) mapController.drawRouteOnMap(mapLibreMap, geom)
                 }
             }
         }
 
+        mapController.flyTo(mapLibreMap, currentPickupLat, currentPickupLon)
         updateActiveCardButtons()
         saveRideState()
     }
@@ -665,29 +778,36 @@ class MainActivity : AppCompatActivity() {
         binding.activeCard.visibility = View.VISIBLE
         binding.requestCard.visibility = View.GONE
         stopCountdown()
+        binding.tvRequestBadge.visibility = View.GONE
+        binding.tvRequestAvatar.visibility = View.GONE
+        mapController.clearIncomingRequest(mapLibreMap)
 
-        binding.tvActivePassenger.text = "🔧 $currentPassengerName"
-        binding.tvActivePickup.text = currentPickupAddr.ifEmpty { "%.5f, %.5f".format(currentPickupLat, currentPickupLon) }
-        binding.tvActiveDest.visibility = View.GONE
-        binding.btnActiveAction.text = "Завершить"
+        val initial = currentPassengerName.firstOrNull()?.toString() ?: "?"
+        binding.tvActiveAvatar.text = "🔧"
+        binding.tvActivePassenger.text = currentPassengerName
+        binding.tvActivePickup.text = currentPickupAddr
+        binding.tvActiveDest.text = currentDestAddr
+        binding.tvActiveDest.visibility = if (currentDestAddr.isNotEmpty()) View.VISIBLE else View.GONE
+        binding.tvActiveRouteInfo.text = currentDestAddr
+        binding.btnActiveAction.text = getString(R.string.btn_complete)
         binding.btnActiveCancel.visibility = View.VISIBLE
     }
 
     private fun updateActiveCardButtons() {
         when (currentRideStatus) {
             "accepted" -> {
-                binding.btnActiveAction.text = "Начать поездку"
-                binding.tvActiveStatus.text = "Едем за пассажиром"
+                binding.btnActiveAction.text = getString(R.string.btn_start_ride)
+                binding.tvActiveStatus.text = getString(R.string.status_driving_to_pickup)
                 binding.btnActiveCancel.visibility = View.VISIBLE
             }
             "in_progress" -> {
-                binding.btnActiveAction.text = "Завершить поездку"
-                binding.tvActiveStatus.text = "В поездке"
+                binding.btnActiveAction.text = getString(R.string.btn_finish_ride)
+                binding.tvActiveStatus.text = getString(R.string.status_in_ride)
                 binding.btnActiveCancel.visibility = View.VISIBLE
             }
             else -> {
-                binding.btnActiveAction.text = "Начать поездку"
-                binding.tvActiveStatus.text = "Принят"
+                binding.btnActiveAction.text = getString(R.string.btn_start_ride)
+                binding.tvActiveStatus.text = getString(R.string.status_accepted)
                 binding.btnActiveCancel.visibility = View.VISIBLE
             }
         }
@@ -721,19 +841,41 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun cancelActiveRide() {
-        val rideId = currentRideId
-        val assistId = currentAssistId
-        if (rideId != null) {
-            rideSocket.cancelRide(rideId, "driver_cancel")
-            currentRideId = null
-        }
-        if (assistId != null) {
-            rideSocket.cancelAssistance(assistId)
-            currentAssistId = null
-        }
-        clearActiveState()
-        mapController.clearAll(mapLibreMap)
-        clearRideState()
+        val reasons = arrayOf(
+            "driver_cancel",
+            "passenger_unreachable",
+            "cant_reach_address",
+            "personal_circumstances",
+            "other"
+        )
+        val labels = arrayOf(
+            "Пассажир не выходит на связь",
+            "Не могу добраться до адреса",
+            "Личные обстоятельства",
+            "Другое"
+        )
+
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Причина отмены")
+            .setItems(labels) { _, which ->
+                val reason = reasons[which]
+                val rideId = currentRideId
+                val assistId = currentAssistId
+                if (rideId != null) {
+                    rideSocket.cancelRide(rideId, reason)
+                    currentRideId = null
+                }
+                if (assistId != null) {
+                    rideSocket.cancelAssistance(assistId)
+                    currentAssistId = null
+                }
+                clearActiveState()
+                mapController.clearAll(mapLibreMap)
+                clearRideState()
+            }
+            .setNegativeButton("Отмена", null)
+            .create()
+        dialog.show()
     }
 
     private fun hideActiveCard() {
@@ -781,7 +923,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun calculateSuggestedPrice(): Double {
-        return 50.0 // simplified
+        // Same formula as PWA: 50 + km*20 + duration_min*1.5
+        val km = lastRouteDistance
+        val durationMin = lastRouteDuration / 60.0
+        return 50.0 + km * 20.0 + durationMin * 1.5
     }
 
     // ─── Yandex Navigator ─────────────────────────────────────────────────
@@ -845,9 +990,10 @@ class MainActivity : AppCompatActivity() {
             val text = etInput.text.toString().trim()
             if (text.isNotEmpty()) {
                 rideSocket.sendChat(contextType, contextId, text)
-                val prev = tvLog.text.toString()
-                tvLog.text = if (prev.isEmpty()) "Вы: $text" else "$prev\nВы: $text"
+                val html = "<font color='#FFC107'><b>Вы:</b> $text</font>"
+                tvLog.append("\n" + android.text.Html.fromHtml(html, android.text.Html.FROM_HTML_MODE_LEGACY))
                 etInput.setText("")
+                scrollChat.post { scrollChat.fullScroll(ScrollView.FOCUS_DOWN) }
             }
         }
 
@@ -858,22 +1004,30 @@ class MainActivity : AppCompatActivity() {
     private fun appendChatMessage(senderRole: String, text: String) {
         val d = chatDialog ?: return
         val tvLog = d.findViewById<TextView>(R.id.tvChatLog) ?: return
-        val label = if (senderRole == "driver" || senderRole == "mechanic") "Вы" else "Пассажир"
-        val prev = tvLog.text.toString()
-        tvLog.text = if (prev.isEmpty()) "$label: $text" else "$prev\n$label: $text"
+        val isDriver = senderRole == "driver" || senderRole == "mechanic"
+        val label = if (isDriver) "Вы" else "Пассажир"
+        val color = if (isDriver) "#FFC107" else "#333333"
+        val html = "<font color='$color'><b>$label:</b> $text</font>"
+        val prev = tvLog.text
+        tvLog.append(if (prev.isEmpty()) android.text.Html.fromHtml(html, android.text.Html.FROM_HTML_MODE_LEGACY) else "\n" + android.text.Html.fromHtml(html, android.text.Html.FROM_HTML_MODE_LEGACY))
+        val scroll = d.findViewById<ScrollView>(R.id.scrollChat)
+        scroll?.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
     }
 
     private fun updateChatLog(messages: List<JSONObject>) {
         val d = chatDialog ?: return
         val tvLog = d.findViewById<TextView>(R.id.tvChatLog) ?: return
-        val lines = messages.map { msg ->
-            val role = msg.optString("senderRole")
+        val sb = StringBuilder()
+        for (msg in messages) {
             val sender = msg.optString("senderId")
             val text = msg.optString("text")
-            val label = if (sender == session.userId) "Вы" else "Пассажир"
-            "$label: $text"
+            val isDriver = sender == session.userId
+            val label = if (isDriver) "Вы" else "Пассажир"
+            val color = if (isDriver) "#FFC107" else "#333333"
+            if (sb.isNotEmpty()) sb.append("\n")
+            sb.append("<font color='$color'><b>$label:</b> $text</font>")
         }
-        tvLog.text = lines.joinToString("\n")
+        tvLog.text = android.text.Html.fromHtml(sb.toString(), android.text.Html.FROM_HTML_MODE_LEGACY)
     }
 
     // ─── Menu Dialog ──────────────────────────────────────────────────────
@@ -903,7 +1057,10 @@ class MainActivity : AppCompatActivity() {
             fetchEarnings()
         }
 
-        btnEarnings.setOnClickListener { dialog.dismiss() }
+        btnEarnings.setOnClickListener {
+            dialog.dismiss()
+            startActivity(Intent(this, EarningsActivity::class.java))
+        }
         btnSkipped.setOnClickListener { dialog.dismiss(); showSkippedDialog() }
         btnSettings.setOnClickListener { dialog.dismiss(); openServerSettingsDialog() }
         btnLogout.setOnClickListener {
