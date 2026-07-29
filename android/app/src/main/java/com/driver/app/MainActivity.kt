@@ -740,13 +740,14 @@ class MainActivity : AppCompatActivity() {
         val uri = android.net.Uri.parse(
             "yandexnavi://build_route_on_map?lat_to=$lat&lon_to=$lon&back_url=$backUrl"
         )
-        val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val intent = Intent(Intent.ACTION_VIEW, uri)
         if (intent.resolveActivity(packageManager) != null) {
             startActivity(intent)
-            moveTaskToBack(true)
+            finish()
         } else {
             Toast.makeText(this, R.string.nav_yandex_not_installed, Toast.LENGTH_LONG).show()
             startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=ru.yandex.yandexnavi")))
+            finish()
         }
     }
 
@@ -1025,6 +1026,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         binding.mapView.onDestroy()
+        rideSocket.disconnect()
         locationBroadcastHandler.removeCallbacksAndMessages(null)
         stopCountdown()
     }
