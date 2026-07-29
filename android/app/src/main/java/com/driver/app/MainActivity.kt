@@ -1,10 +1,14 @@
 package com.driver.app
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Dialog
+import android.app.PendingIntent
+import android.app.RemoteAction
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.Icon
 import android.media.ToneGenerator
 import android.os.Build
 import android.os.Bundle
@@ -18,11 +22,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
-import android.widget.ImageButton
-import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Toast
-import android.annotation.SuppressLint
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -783,9 +783,8 @@ class MainActivity : AppCompatActivity() {
     // ─── Yandex Navigator ─────────────────────────────────────────────────
 
     private fun launchYandexNavigator(lat: Double, lon: Double) {
-        val backUrl = android.net.Uri.encode("tuarip://trip_ended")
         val uri = android.net.Uri.parse(
-            "yandexnavi://build_route_on_map?lat_to=$lat&lon_to=$lon&back_url=$backUrl"
+            "yandexnavi://build_route_on_map?lat_to=$lat&lon_to=$lon"
         )
         val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (intent.resolveActivity(packageManager) != null) {
@@ -794,7 +793,29 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.nav_yandex_not_installed, Toast.LENGTH_LONG).show()
             startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=ru.yandex.yandexnavi")))
         }
-        moveTaskToBack(true)
+        enterPipMode()
+    }
+
+    private fun enterPipMode() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (currentRideId == null && currentAssistId == null) return
+        val params = PictureInPictureParams.Builder()
+            .setActions(listOf(
+                RemoteAction(
+                    Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+                    getString(R.string.pip_action_finish),
+                    getString(R.string.pip_action_finish),
+                    PendingIntent.getBroadcast(
+                        this, 0,
+                        Intent(this, PipActionReceiver::class.java).apply {
+                            action = PipActionReceiver.ACTION_FINISH_ORDER
+                        },
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                    )
+                )
+            ))
+            .build()
+        enterPictureInPictureMode(params)
     }
 
     // ─── Chat ──────────────────────────────────────────────────────────────
@@ -1054,6 +1075,15 @@ class MainActivity : AppCompatActivity() {
         outState.putDouble("pickupLon", currentPickupLon)
         outState.putDouble("destLat", currentDestLat)
         outState.putDouble("destLon", currentDestLon)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra(PipActionReceiver.EXTRA_FINISH_ORDER, false)) {
+            if (currentRideStatus == "in_progress" && currentRideId != null) {
+                showPriceModal(currentRideId!!)
+            }
+        }
     }
 
     override fun onResume() {
