@@ -331,6 +331,7 @@ class MainActivity : AppCompatActivity() {
                     lastRouteMin = min
                     runOnUiThread { updateGoButtonState() }
                 }
+                rideSocket.requestPendingList()
 
                 if (hasLocationPermission()) {
                     enableLocationComponent()
@@ -1113,10 +1114,7 @@ class MainActivity : AppCompatActivity() {
         rideSocket = RideSocketManager(session.serverUrl, session.token ?: "")
 
         rideSocket.onConnected = {
-            runOnUiThread {
-                showToast(R.string.toast_server_connected)
-                rideSocket.requestPendingList()
-            }
+            runOnUiThread { showToast(R.string.toast_server_connected) }
         }
         rideSocket.onConnectError = { msg ->
             if (!backgrounded) {
@@ -1314,6 +1312,18 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 viewModel.removeAssistance(assistId)
                 mapController.removePassenger(mapLibreMap, assistId)
+            }
+        }
+        rideSocket.onPendingRideCreated = { rideId, lat, lon ->
+            runOnUiThread {
+                viewModel.addWaitingPassenger(rideId, "Пассажир", lat, lon, lat, lon)
+                mapController.addWaitingPassenger(mapLibreMap, rideId, lat, lon, "Пассажир")
+            }
+        }
+        rideSocket.onPendingAssistCreated = { assistId, lat, lon ->
+            runOnUiThread {
+                viewModel.addWaitingAssistance(assistId, assistId, "Пассажир", lat, lon, "", "", "")
+                mapController.addWaitingPassenger(mapLibreMap, assistId, lat, lon, "Пассажир")
             }
         }
     }

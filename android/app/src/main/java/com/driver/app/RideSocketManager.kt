@@ -77,6 +77,8 @@ class RideSocketManager(
     // ─── Callbacks: pending orders on map ──────────────────────────────────
     var onPendingRides: ((rides: List<JSONObject>) -> Unit)? = null
     var onPendingAssists: ((assists: List<JSONObject>) -> Unit)? = null
+    var onPendingRideCreated: ((rideId: String, lat: Double, lon: Double) -> Unit)? = null
+    var onPendingAssistCreated: ((assistId: String, lat: Double, lon: Double) -> Unit)? = null
     var onPendingRideRemoved: ((rideId: String) -> Unit)? = null
     var onPendingAssistRemoved: ((assistId: String) -> Unit)? = null
 
@@ -223,6 +225,14 @@ class RideSocketManager(
                     val list = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
                     onPendingAssists?.invoke(list)
                 }
+            }
+            s.on("pending:ride_created") { args ->
+                val data = args.firstOrNull() as? JSONObject ?: return@on
+                onPendingRideCreated?.invoke(data.optString("id"), data.optDouble("lat"), data.optDouble("lon"))
+            }
+            s.on("pending:assist_created") { args ->
+                val data = args.firstOrNull() as? JSONObject ?: return@on
+                onPendingAssistCreated?.invoke(data.optString("id"), data.optDouble("lat"), data.optDouble("lon"))
             }
             s.on("pending:ride_removed") { args ->
                 (args.firstOrNull() as? JSONObject)?.let { onPendingRideRemoved?.invoke(it.optString("rideId")) }

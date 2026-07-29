@@ -21,7 +21,7 @@ class SessionManager(context: Context) {
         private const val KEY_NAME = "name"
         private const val KEY_ROLE = "role"
         private const val KEY_SERVER_URL = "server_url"
-        private const val DEFAULT_SERVER_URL = "https://your-server.example"
+        private const val DEFAULT_SERVER_URL = "https://taxi.fbs3.ru"
     }
 
     var token: String?
