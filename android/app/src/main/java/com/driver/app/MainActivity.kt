@@ -570,7 +570,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.requestCard.visibility = View.VISIBLE
         binding.activeCard.visibility = View.GONE
-        sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED }
         binding.tvRequestBadge.text = getString(R.string.badge_new_order)
         binding.tvRequestBadge.setTextColor(Color.parseColor("#FFC107"))
         binding.tvRequestBadge.visibility = View.VISIBLE
@@ -609,7 +609,7 @@ class MainActivity : AppCompatActivity() {
     private fun showIncomingAssistRequest(assistId: String, pName: String, pLat: Double, pLon: Double,
                                            carMake: String, bType: String, phone: String, desc: String) {
         if (currentRideId != null || currentAssistId != null) {
-            requestQueue.addLast(QueuedRequest("assist", null, assistId, pName, pLat, pLon, 0.0, 0.0, "", "", carMake, bType, phone, desc))
+            requestQueue.addLast(QueuedRequest("assist", null, assistId, pName, pLat, pLon, pLat, pLon, "", "", carMake, bType, phone, desc))
             return
         }
 
@@ -624,7 +624,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.requestCard.visibility = View.VISIBLE
         binding.activeCard.visibility = View.GONE
-        sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED }
         binding.tvRequestBadge.text = getString(R.string.badge_assistance)
         binding.tvRequestBadge.setTextColor(Color.parseColor("#4CAF50"))
         binding.tvRequestBadge.visibility = View.VISIBLE
@@ -635,7 +635,7 @@ class MainActivity : AppCompatActivity() {
         binding.tvRequestDest.visibility = if (desc.isNotEmpty()) View.VISIBLE else View.GONE
         binding.tvRequestRouteInfo.text = phone
 
-        mapController.setIncomingRequestOnMap(mapLibreMap, pLat, pLon, 0.0, 0.0)
+        mapController.setIncomingRequestOnMap(mapLibreMap, pLat, pLon, pLat, pLon)
 
         vibrateAndBeep()
         startCountdown()
@@ -753,7 +753,7 @@ class MainActivity : AppCompatActivity() {
     private fun showActiveRide() {
         binding.activeCard.visibility = View.VISIBLE
         binding.requestCard.visibility = View.GONE
-        sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED }
         stopCountdown()
         binding.tvRequestBadge.visibility = View.GONE
         binding.tvRequestAvatar.visibility = View.GONE
@@ -787,7 +787,7 @@ class MainActivity : AppCompatActivity() {
     private fun showActiveAssistance() {
         binding.activeCard.visibility = View.VISIBLE
         binding.requestCard.visibility = View.GONE
-        sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED }
         stopCountdown()
         binding.tvRequestBadge.visibility = View.GONE
         binding.tvRequestAvatar.visibility = View.GONE
@@ -802,6 +802,18 @@ class MainActivity : AppCompatActivity() {
         binding.tvActiveRouteInfo.text = currentDestAddr
         binding.btnActiveAction.text = getString(R.string.btn_complete)
         binding.btnActiveCancel.visibility = View.VISIBLE
+
+        // Navigate to client location for assistance
+        mapController.flyTo(mapLibreMap, currentPickupLat, currentPickupLon)
+        lifecycleScope.launch {
+            val route = withContext(Dispatchers.IO) { fetchRoute(currentPickupLon, currentPickupLat, currentPickupLon, currentPickupLat) }
+            if (route != null) {
+                runOnUiThread {
+                    val geom = route.optJSONObject("geometry")
+                    if (geom != null) mapController.drawRouteOnMap(mapLibreMap, geom)
+                }
+            }
+        }
     }
 
     private fun updateActiveCardButtons() {
