@@ -735,7 +735,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideRequestCard() {
         binding.requestCard.visibility = View.GONE
-        sheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
+        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED }
         stopCountdown()
         pendingRideId = null
         pendingAssistId = null
@@ -916,7 +916,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideActiveCard() {
         binding.activeCard.visibility = View.GONE
-        sheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
+        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED }
     }
 
     private fun clearActiveState() {

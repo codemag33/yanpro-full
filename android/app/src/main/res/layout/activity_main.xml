@@ -118,8 +118,8 @@
         android:layout_gravity="bottom"
         android:orientation="vertical"
         android:background="@drawable/bg_bottom_sheet"
-        app:behavior_hideable="true"
-        app:behavior_peekHeight="0dp"
+        app:behavior_hideable="false"
+        app:behavior_peekHeight="60dp"
         app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
 
         <View
