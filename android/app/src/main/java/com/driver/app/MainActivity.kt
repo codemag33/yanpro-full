@@ -193,6 +193,7 @@ class MainActivity : AppCompatActivity() {
         setupActiveCard()
         setupPriceModal()
         setupFab()
+        setupBottomSheet()
 
         setupRideSocket()
         rideSocket.connect()
@@ -570,7 +571,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.requestCard.visibility = View.VISIBLE
         binding.activeCard.visibility = View.GONE
-        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED }
+        expandSheet()
         binding.tvRequestBadge.text = getString(R.string.badge_new_order)
         binding.tvRequestBadge.setTextColor(Color.parseColor("#FFC107"))
         binding.tvRequestBadge.visibility = View.VISIBLE
@@ -624,7 +625,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.requestCard.visibility = View.VISIBLE
         binding.activeCard.visibility = View.GONE
-        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED }
+        expandSheet()
         binding.tvRequestBadge.text = getString(R.string.badge_assistance)
         binding.tvRequestBadge.setTextColor(Color.parseColor("#4CAF50"))
         binding.tvRequestBadge.visibility = View.VISIBLE
@@ -735,11 +736,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideRequestCard() {
         binding.requestCard.visibility = View.GONE
-        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED }
         stopCountdown()
         pendingRideId = null
         pendingAssistId = null
         mapController.clearIncomingRequest(mapLibreMap)
+        collapseSheet()
     }
 
     // ─── Active Ride Card ──────────────────────────────────────────────────
@@ -753,7 +754,7 @@ class MainActivity : AppCompatActivity() {
     private fun showActiveRide() {
         binding.activeCard.visibility = View.VISIBLE
         binding.requestCard.visibility = View.GONE
-        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED }
+        expandSheet()
         stopCountdown()
         binding.tvRequestBadge.visibility = View.GONE
         binding.tvRequestAvatar.visibility = View.GONE
@@ -787,7 +788,7 @@ class MainActivity : AppCompatActivity() {
     private fun showActiveAssistance() {
         binding.activeCard.visibility = View.VISIBLE
         binding.requestCard.visibility = View.GONE
-        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED }
+        expandSheet()
         stopCountdown()
         binding.tvRequestBadge.visibility = View.GONE
         binding.tvRequestAvatar.visibility = View.GONE
@@ -916,7 +917,47 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideActiveCard() {
         binding.activeCard.visibility = View.GONE
-        binding.bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED }
+        collapseSheet()
+    }
+
+    private fun expandSheet() {
+        binding.bottomSheet.post {
+            binding.bottomSheet.requestLayout()
+            if (sheetBehavior.state != BottomSheetBehavior.STATE_EXPANDED) {
+                sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+            }
+        }
+        binding.bottomSheet.postDelayed({
+            if (hasSheetContent() && sheetBehavior.state != BottomSheetBehavior.STATE_EXPANDED) {
+                sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+            }
+        }, 120)
+    }
+
+    private fun hasSheetContent(): Boolean =
+        binding.requestCard.visibility == View.VISIBLE || binding.activeCard.visibility == View.VISIBLE
+
+    private fun collapseSheet() {
+        binding.bottomSheet.post {
+            if (!hasSheetContent()) {
+                sheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+            }
+        }
+    }
+
+    private fun setupBottomSheet() {
+        sheetBehavior.isHideable = false
+        sheetBehavior.isFitToContents = true
+        sheetBehavior.addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
+            override fun onStateChanged(bottomSheet: android.view.View, newState: Int) {
+                if (newState == BottomSheetBehavior.STATE_COLLAPSED && hasSheetContent()) {
+                    // Content is visible but sheet got collapsed — re-expand it.
+                    bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED }
+                }
+            }
+            override fun onSlide(bottomSheet: android.view.View, slideOffset: Float) {}
+        })
+        collapseSheet()
     }
 
     private fun clearActiveState() {
