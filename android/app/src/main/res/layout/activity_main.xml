@@ -119,16 +119,31 @@
         android:orientation="vertical"
         android:background="@drawable/bg_bottom_sheet"
         app:behavior_hideable="false"
-        app:behavior_peekHeight="60dp"
+        app:behavior_peekHeight="72dp"
         app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
 
-        <View
-            android:layout_width="40dp"
-            android:layout_height="4dp"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="10dp"
-            android:layout_marginBottom="10dp"
-            android:background="@drawable/bg_drag_handle" />
+        <!-- Persistent drag handle (always visible at bottom when collapsed) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:background="@drawable/bg_bottom_sheet">
+
+            <View
+                android:layout_width="40dp"
+                android:layout_height="4dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="4dp"
+                android:background="@drawable/bg_drag_handle" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Потяните вверх"
+                android:textColor="@color/uber_text_hint"
+                android:textSize="11sp" />
+        </LinearLayout>
 
         <!-- ═══ Request card content ═══ -->
         <LinearLayout
