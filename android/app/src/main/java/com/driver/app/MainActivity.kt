@@ -67,6 +67,7 @@ class MainActivity : AppCompatActivity() {
 
     private var mapFallbackTimer: Handler? = null
     private var mapStyleLoaded = false
+    private var styleGeneration = 0
 
     private var backgrounded = false
     private var isOnline = false
@@ -453,35 +454,56 @@ class MainActivity : AppCompatActivity() {
         binding.mapView.onCreate(null)
         binding.mapView.getMapAsync { map ->
             mapLibreMap = map
-            val styleUrl = "https://tiles.openfreemap.org/styles/liberty"
-
-            map.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
-                mapStyleLoaded = true
-                mapFallbackTimer?.removeCallbacksAndMessages(null)
-                mapController.setupLayers(style)
-                rideSocket.requestPendingList()
-                if (currentRideId != null) showActiveRide()
-
-                if (hasLocationPermission()) {
-                    enableLocationComponent()
-                } else {
-                    map.cameraPosition = CameraPosition.Builder()
-                        .target(LatLng(55.751244, 37.618423))
-                        .zoom(12.0)
-                        .build()
-                    locationPermissionLauncher.launch(
-                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-                    )
-                }
-            }
+            loadMapStyle("https://tiles.openfreemap.org/styles/liberty")
         }
 
         mapFallbackTimer = Handler(Looper.getMainLooper()).apply {
             postDelayed({
                 if (!mapStyleLoaded) {
-                    mapLibreMap?.setStyle(Style.Builder().fromUri("https://tile.openstreetmap.org/{z}/{x}/{y}.png"))
+                    loadMapStyle("https://tile.openstreetmap.org/{z}/{x}/{y}.png")
                 }
             }, 6000)
+        }
+    }
+
+    /**
+     * Loads a style safely. The location component must be disabled BEFORE
+     * setStyle: its compass animators call getSourceAs() on the current style
+     * and crash with "Calling getSourceAs when a newer style is loading/has
+     * loaded" if a new style starts loading while they are running.
+     */
+    private fun loadMapStyle(styleUrl: String) {
+        val map = mapLibreMap ?: return
+        val gen = ++styleGeneration
+        try {
+            map.locationComponent.isLocationComponentEnabled = false
+        } catch (_: Exception) {}
+
+        map.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
+            if (gen != styleGeneration) {
+                // A newer style was requested; this one may still end up
+                // active, so re-apply layers + location without side effects.
+                mapController.setupLayers(style)
+                if (hasLocationPermission()) enableLocationComponent()
+                return@setStyle
+            }
+            mapStyleLoaded = true
+            mapFallbackTimer?.removeCallbacksAndMessages(null)
+            mapController.setupLayers(style)
+            rideSocket.requestPendingList()
+            if (currentRideId != null) showActiveRide()
+
+            if (hasLocationPermission()) {
+                enableLocationComponent()
+            } else {
+                map.cameraPosition = CameraPosition.Builder()
+                    .target(LatLng(55.751244, 37.618423))
+                    .zoom(12.0)
+                    .build()
+                locationPermissionLauncher.launch(
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                )
+            }
         }
     }
 
