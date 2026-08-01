@@ -25,6 +25,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -1372,7 +1373,7 @@ class MainActivity : AppCompatActivity() {
                         tvTotal.text = "Получено: %.0f ₽".format(total)
                         container.removeAllViews()
                         for (i in 0 until arr.length()) {
-                            container.addView(buildBonusRow(arr.optJSONObject(i), tvTotal, tvEmpty, container))
+                            container.addView(buildBonusRow(arr.optJSONObject(i), tvTotal, tvEmpty, container, dialog))
                         }
                     }
                 }
@@ -1383,7 +1384,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun buildBonusRow(b: org.json.JSONObject?, tvTotal: TextView, tvEmpty: TextView, container: LinearLayout): View {
+    private fun buildBonusRow(b: org.json.JSONObject?, tvTotal: TextView, tvEmpty: TextView, container: LinearLayout, dialog: Dialog): View {
         val type = b?.optString("type", "") ?: ""
         val name = b?.optString("name", "") ?: ""
         val desc = b?.optString("description", "") ?: ""
@@ -1418,7 +1419,7 @@ class MainActivity : AppCompatActivity() {
         })
         row.addView(info)
 
-        val btn = Button(this, null, com.google.android.material.R.attr.buttonStyleTextButton).apply {
+        val btn = android.widget.Button(this).apply {
             text = when {
                 claimed -> "Получен"
                 eligible -> "Забрать"

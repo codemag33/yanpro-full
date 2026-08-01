@@ -200,7 +200,7 @@ class HistoryActivity : AppCompatActivity() {
             if (item.clientPhone.isNotEmpty()) append("Телефон: ${item.clientPhone}\n")
             append("Откуда: ${item.pickupAddress.ifEmpty { "—" }}\n")
             append("Куда: ${item.destAddress.ifEmpty { "—" }}\n")
-            if (item.cancelReason.isNotEmpty()) append("Причина отмены: $cancelReason\n")
+            if (item.cancelReason.isNotEmpty()) append("Причина отмены: ${item.cancelReason}\n")
             if (item.price.isNotEmpty()) append("Стоимость: ${item.price}")
         }
         androidx.appcompat.app.AlertDialog.Builder(this)

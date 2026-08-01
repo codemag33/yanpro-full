@@ -313,15 +313,15 @@ class RideSocketManager(
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val timeoutRunnable = Runnable { if (!done) { done = true; ack?.invoke(false, "timeout") } }
         handler.postDelayed(timeoutRunnable, 8000)
-        s.emit("ride:finish", payload) { args ->
-            if (done) return@emit
+        s.emit("ride:finish", payload, io.socket.client.Ack { args ->
+            if (done) return@Ack
             done = true
             handler.removeCallbacks(timeoutRunnable)
             val data = args.firstOrNull() as? JSONObject
             val ok = data?.optBoolean("ok") ?: false
             if (ok && currentRideId == rideId) currentRideId = null
             ack?.invoke(ok, if (ok) null else (data?.optString("error") ?: "server_error"))
-        }
+        })
     }
 
     fun cancelRide(rideId: String, reason: String? = null) {
@@ -347,15 +347,15 @@ class RideSocketManager(
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val timeoutRunnable = Runnable { if (!done) { done = true; ack?.invoke(false, "timeout") } }
         handler.postDelayed(timeoutRunnable, 8000)
-        s.emit("assistance:finish", payload) { args ->
-            if (done) return@emit
+        s.emit("assistance:finish", payload, io.socket.client.Ack { args ->
+            if (done) return@Ack
             done = true
             handler.removeCallbacks(timeoutRunnable)
             val data = args.firstOrNull() as? JSONObject
             val ok = data?.optBoolean("ok") ?: false
             if (ok && currentAssistId == assistId) currentAssistId = null
             ack?.invoke(ok, if (ok) null else (data?.optString("error") ?: "server_error"))
-        }
+        })
     }
 
     /** Водитель предлагает цену поездки пассажиру (торг). */
