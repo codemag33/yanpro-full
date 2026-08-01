@@ -30,6 +30,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.doOnLayout
 import androidx.lifecycle.lifecycleScope
 import com.driver.app.databinding.ActivityMainBinding
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -921,25 +922,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun expandSheet() {
-        binding.bottomSheet.post {
-            binding.bottomSheet.requestLayout()
-            if (sheetBehavior.state != BottomSheetBehavior.STATE_EXPANDED) {
-                sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
-            }
-        }
-        binding.bottomSheet.postDelayed({
+        // Wait until the sheet has re-measured with the newly-visible content,
+        // otherwise fitToContents computes the expanded offset from the stale
+        // (handle-only) height and the sheet animates up then snaps back down.
+        binding.bottomSheet.doOnLayout {
             if (hasSheetContent() && sheetBehavior.state != BottomSheetBehavior.STATE_EXPANDED) {
                 sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
             }
-        }, 120)
+        }
     }
 
     private fun hasSheetContent(): Boolean =
         binding.requestCard.visibility == View.VISIBLE || binding.activeCard.visibility == View.VISIBLE
 
     private fun collapseSheet() {
-        binding.bottomSheet.post {
-            if (!hasSheetContent()) {
+        binding.bottomSheet.doOnLayout {
+            if (!hasSheetContent() && sheetBehavior.state != BottomSheetBehavior.STATE_COLLAPSED) {
                 sheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
             }
         }
