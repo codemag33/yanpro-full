@@ -132,6 +132,7 @@
     <string name="btn_complete">Завершить</string>
     <string name="btn_cancel_ride">Отменить поездку</string>
     <string name="status_driving_to_pickup">Едем за пассажиром</string>
+    <string name="status_driving_to_client">Едем к клиенту</string>
     <string name="status_in_ride">В поездке</string>
     <string name="status_accepted">Принят</string>
 

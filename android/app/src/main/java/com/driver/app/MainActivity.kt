@@ -82,6 +82,7 @@ class MainActivity : AppCompatActivity() {
     private var currentDestLon = 0.0
     private var currentRideStatus = ""
     private var navigatedToPickup = false
+    private var assistNavigated = false
 
     private var requestTimerHandler: Handler? = null
     private var requestTimerRunnable: Runnable? = null
@@ -801,19 +802,15 @@ class MainActivity : AppCompatActivity() {
         binding.tvActiveDest.text = currentDestAddr
         binding.tvActiveDest.visibility = if (currentDestAddr.isNotEmpty()) View.VISIBLE else View.GONE
         binding.tvActiveRouteInfo.text = currentDestAddr
-        binding.btnActiveAction.text = getString(R.string.btn_complete)
+        binding.tvActiveStatus.text = getString(R.string.status_driving_to_pickup)
+        binding.btnActiveAction.text = "Навигатор"
         binding.btnActiveCancel.visibility = View.VISIBLE
 
-        // Navigate to client location for assistance
+        // Route from driver's current location to the client
+        val loc = mapLibreMap?.locationComponent?.lastKnownLocation
         mapController.flyTo(mapLibreMap, currentPickupLat, currentPickupLon)
-        lifecycleScope.launch {
-            val route = withContext(Dispatchers.IO) { fetchRoute(currentPickupLon, currentPickupLat, currentPickupLon, currentPickupLat) }
-            if (route != null) {
-                runOnUiThread {
-                    val geom = route.optJSONObject("geometry")
-                    if (geom != null) mapController.drawRouteOnMap(mapLibreMap, geom)
-                }
-            }
+        if (loc != null) {
+            drawRoute(loc.latitude, loc.longitude, currentPickupLat, currentPickupLon)
         }
     }
 
@@ -825,7 +822,7 @@ class MainActivity : AppCompatActivity() {
                     binding.tvActiveStatus.text = "Заберите пассажира"
                 } else {
                     binding.btnActiveAction.text = "Навигатор"
-                    binding.tvActiveStatus.text = getString(R.string.status_driving_to_pickup)
+        binding.tvActiveStatus.text = getString(R.string.status_driving_to_client)
                 }
                 binding.btnActiveCancel.visibility = View.VISIBLE
             }
@@ -847,9 +844,16 @@ class MainActivity : AppCompatActivity() {
         val assistId = currentAssistId
 
         if (assistId != null) {
-            rideSocket.finishAssistance(assistId)
-            clearActiveState()
-            mapController.clearAll(mapLibreMap)
+            if (!assistNavigated) {
+                assistNavigated = true
+                binding.btnActiveAction.text = getString(R.string.btn_complete)
+                binding.tvActiveStatus.text = "Выполните помощь и завершите заявку"
+                launchYandexNavigator(currentPickupLat, currentPickupLon)
+            } else {
+                rideSocket.finishAssistance(assistId)
+                clearActiveState()
+                mapController.clearAll(mapLibreMap)
+            }
             return
         }
 
@@ -986,6 +990,7 @@ class MainActivity : AppCompatActivity() {
         currentAssistId = null
         currentRideStatus = ""
         navigatedToPickup = false
+        assistNavigated = false
         hideActiveCard()
         hideRequestCard()
     }
