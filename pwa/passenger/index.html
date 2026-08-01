@@ -74,6 +74,11 @@
   .btnGray{background:#F0F2F1; color:var(--text);}
   .btnDanger{background:#FDEDED; color:var(--danger);}
 
+  /* ── Торг ценой ─────────────────────────────────────────────────── */
+  .priceOfferBox{border:2px solid var(--green); border-radius:12px; padding:12px; text-align:center; margin:10px 0;}
+  .priceOfferBox>div{font-size:14px; color:var(--text);}
+  .priceOfferBox .priceOfferAmount{font-size:22px; font-weight:700; color:var(--green); margin:4px 0 2px;}
+
   /* ── Чат ────────────────────────────────────────────────────────── */
   #chatOverlay{position:fixed; inset:0; background:var(--card); z-index:60; display:flex; flex-direction:column;}
   #chatHeader{display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid #F0F0F0;}
@@ -499,6 +504,11 @@ function connectSocket() {
     placeMarker('driver', data.lat, data.lon);
   });
   state.socket.on('ride:started', () => renderRideState('in_progress'));
+  state.socket.on('ride:price_offered', (data) => {
+    if (!state.activeRide || state.activeRide.id !== data.rideId) return;
+    showPriceOffer(data.price);
+    toast(`Водитель предлагает цену ${data.price} ₽`);
+  });
   state.socket.on('ride:finished', () => { toast('Поездка завершена'); resetRide(); });
   state.socket.on('ride:cancelled', (data) => { toast(data.by === 'driver' ? 'Водитель отменил поездку' : 'Поездка отменена'); resetRide(); });
 
@@ -609,6 +619,14 @@ function renderRideState(status, driverName) {
   sheet.innerHTML = `
     <div class="dragHandle"></div>
     <div class="statusCard"><div class="big">${label}</div></div>
+    <div class="priceOfferBox hidden" id="priceOfferBox">
+      <div>Водитель предлагает цену:</div>
+      <div class="big priceOfferAmount" id="priceOfferAmount"></div>
+      <div class="actionsRow">
+        <button class="btnDanger" id="btnRejectPrice">Отклонить</button>
+        <button class="btnGreen" id="btnAcceptPrice">Принять</button>
+      </div>
+    </div>
     <div class="driverRow">
       <div class="avatar">${(driverName || 'В')[0]}</div>
       <div class="driverInfo"><div class="name">${driverName || 'Водитель'}</div><div class="role">Водитель</div></div>
@@ -620,6 +638,31 @@ function renderRideState(status, driverName) {
   `;
   document.getElementById('btnOpenChat').onclick = openChat;
   document.getElementById('btnCancelRide').onclick = () => cancelRide('passenger_cancel');
+  document.getElementById('btnAcceptPrice').onclick = acceptPriceOffer;
+  document.getElementById('btnRejectPrice').onclick = rejectPriceOffer;
+}
+
+// ─── Торг ценой: пассажир видит предложение водителя ────────────────────
+function acceptPriceOffer() {
+  const rideId = state.activeRide?.id;
+  if (!rideId) return;
+  const amount = document.getElementById('priceOfferAmount').textContent;
+  state.socket.emit('ride:price_offer_accept', { rideId });
+  document.getElementById('priceOfferBox').classList.add('hidden');
+  toast(`Цена ${amount} принята`);
+}
+function rejectPriceOffer() {
+  const rideId = state.activeRide?.id;
+  if (!rideId) return;
+  state.socket.emit('ride:price_offer_reject', { rideId });
+  document.getElementById('priceOfferBox').classList.add('hidden');
+  toast('Вы отклонили предложенную цену');
+}
+function showPriceOffer(price) {
+  const box = document.getElementById('priceOfferBox');
+  if (!box) return;
+  document.getElementById('priceOfferAmount').textContent = `${price} ₽`;
+  box.classList.remove('hidden');
 }
 
 function renderAssistState(status, mechanicName) {
