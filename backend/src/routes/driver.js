@@ -14,13 +14,13 @@ router.get('/stats/today', requireAuth, requireRole('driver', 'mechanic'), async
       [req.user.id]
     );
     const assists = await db.query(
-      `SELECT COUNT(*) AS count
+      `SELECT COUNT(*) AS count, COALESCE(SUM(price), 0) AS total
        FROM assistance_requests
        WHERE mechanic_id = $1 AND status = 'completed' AND finished_at >= date_trunc('day', now())`,
       [req.user.id]
     );
     res.json({
-      earningsToday: parseFloat(rides.rows[0].total),
+      earningsToday: parseFloat(rides.rows[0].total) + parseFloat(assists.rows[0].total),
       ridesToday: parseInt(rides.rows[0].count, 10),
       assistsToday: parseInt(assists.rows[0].count, 10),
     });
@@ -42,7 +42,7 @@ router.get('/history', requireAuth, requireRole('driver', 'mechanic'), async (re
        LEFT JOIN users u ON u.id = r.passenger_id
        WHERE r.driver_id = $1 AND r.status IN ('completed', 'cancelled')
        UNION ALL
-       SELECT ar.id, 'assistance' as type, status, NULL as price,
+       SELECT ar.id, 'assistance' as type, status, ar.price as price,
               COALESCE(ar.car_make, '') || CASE WHEN ar.breakdown_type IS NOT NULL THEN ' — ' || ar.breakdown_type ELSE '' END as pickup_address,
               COALESCE(ar.description, '') as destination_address,
               ar.created_at, ar.finished_at, NULL as cancel_reason,
@@ -110,8 +110,15 @@ router.get('/earnings-history', requireAuth, requireRole('driver', 'mechanic'), 
     const days = Math.min(parseInt(req.query.days) || 7, 30);
     const history = await db.query(
       `SELECT DATE(finished_at) as date, COUNT(*) as count, COALESCE(SUM(price), 0) as earnings
-       FROM rides
-       WHERE driver_id = $1 AND status = 'completed' AND finished_at >= now() - interval '1 day' * $2
+       FROM (
+         SELECT finished_at, price
+         FROM rides
+         WHERE driver_id = $1 AND status = 'completed' AND finished_at >= now() - interval '1 day' * $2
+         UNION ALL
+         SELECT finished_at, price
+         FROM assistance_requests
+         WHERE mechanic_id = $1 AND status = 'completed' AND finished_at >= now() - interval '1 day' * $2
+       ) all_orders
        GROUP BY DATE(finished_at)
        ORDER BY date ASC`,
       [req.user.id, days]

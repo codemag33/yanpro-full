@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "migrate": "psql \"$DATABASE_URL\" -f db/schema.sql",
+    "migrate:v2.2": "psql \"$DATABASE_URL\" -f db/schema_v2.2.sql",
     "create-admin": "node db/seed.js"
   },
   "dependencies": {

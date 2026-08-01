@@ -290,8 +290,10 @@ class RideSocketManager(
         socket?.emit("assistance:accept", JSONObject().put("assistId", assistId))
     }
 
-    fun finishAssistance(assistId: String) {
-        socket?.emit("assistance:finish", JSONObject().put("assistId", assistId))
+    fun finishAssistance(assistId: String, price: Double? = null) {
+        val payload = JSONObject().put("assistId", assistId)
+        price?.let { payload.put("price", it) }
+        socket?.emit("assistance:finish", payload)
         if (currentAssistId == assistId) currentAssistId = null
     }
 

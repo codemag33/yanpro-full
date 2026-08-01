@@ -5,6 +5,9 @@ const geoKey = (role) => `geo:${role}`; // geo:driver | geo:mechanic
 
 // Также храним socketId и статус online отдельно (Redis GEO не хранит доп. поля).
 const metaKey = (role, userId) => `driver_meta:${role}:${userId}`;
+// Персистентный статус online/offline — НЕ удаляется при removeDriver,
+// иначе следующий location:update молча вернул бы водителя в гео-поиск.
+const statusKey = (role, userId) => `driver_status:${role}:${userId}`;
 
 async function setLocation(role, userId, lon, lat, meta) {
   await redis.geoadd(geoKey(role), lon, lat, userId);
@@ -23,7 +26,13 @@ async function removeDriver(role, userId) {
 }
 
 async function setStatus(role, userId, status) {
+  await redis.set(statusKey(role, userId), status, 'EX', 60 * 60 * 24 * 7);
   await redis.hset(metaKey(role, userId), 'status', status);
+}
+
+async function getStatus(role, userId) {
+  const status = await redis.get(statusKey(role, userId));
+  return status || 'offline'; // по умолчанию offline — пока водитель не включил онлайн
 }
 
 // Ищем ближайших N доступных (status=online) в радиусе radiusKm
@@ -54,4 +63,4 @@ async function getLocation(role, userId) {
   return { lon: parseFloat(lon), lat: parseFloat(lat) };
 }
 
-module.exports = { setLocation, removeDriver, setStatus, findNearby, getLocation };
+module.exports = { setLocation, removeDriver, setStatus, getStatus, findNearby, getLocation };

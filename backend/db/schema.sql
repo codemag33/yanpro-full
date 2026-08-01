@@ -64,6 +64,7 @@ CREATE TABLE assistance_requests (
     phone           text,
     breakdown_type  text,
     description     text,
+    price           numeric(10,2), -- сумма за выполненную работу (заполняет механик)
     created_at      timestamptz NOT NULL DEFAULT now(),
     accepted_at     timestamptz,
     finished_at     timestamptz
@@ -71,6 +72,17 @@ CREATE TABLE assistance_requests (
 
 CREATE INDEX idx_assist_status ON assistance_requests(status);
 CREATE INDEX idx_assist_pickup_geo ON assistance_requests USING GIST(pickup);
+
+-- ─── Пропущенные заказы/заявки (водитель/механик нажал «Пропустить») ────
+CREATE TABLE skipped_requests (
+    id              bigserial PRIMARY KEY,
+    user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    request_type    text NOT NULL CHECK (request_type IN ('ride', 'assist')),
+    request_id      uuid NOT NULL,
+    skipped_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_skipped_user ON skipped_requests(user_id, skipped_at DESC);
 
 -- ─── Чат (изолирован по контексту ride/assist — см. sockets/rooms.js) ────
 CREATE TABLE chat_messages (

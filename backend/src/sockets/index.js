@@ -64,7 +64,15 @@ function setupSockets(io) {
       if (typeof data?.lat !== 'number' || typeof data?.lon !== 'number') return;
 
       if (role === 'driver' || role === 'mechanic') {
-        await geo.setLocation(role, userId, data.lon, data.lat, { socketId: socket.id, name, status: 'online' });
+        // Используем сохранённый статус, а не хардкодим 'online':
+        // иначе офлайн-водитель (или отключившийся от гео) снова появлялся
+        // в поиске при первом же location:update.
+        const status = await geo.getStatus(role, userId);
+        if (status === 'online') {
+          await geo.setLocation(role, userId, data.lon, data.lat, { socketId: socket.id, name, status: 'online' });
+        } else {
+          await geo.setLocation(role, userId, data.lon, data.lat, { socketId: socket.id, name, status: 'offline' });
+        }
         // Шлём координаты только в комнату конкретной поездки, а не всем подряд.
         if (data.rideId) socket.to(rideRoom(data.rideId)).emit('ride:driver_location', { lat: data.lat, lon: data.lon });
         if (data.assistId) socket.to(assistRoom(data.assistId)).emit('assistance:driver_location', { lat: data.lat, lon: data.lon });
@@ -344,8 +352,8 @@ function setupSockets(io) {
 
     socket.on('assistance:finish', async (data) => {
       if (role !== 'mechanic' || !data?.assistId) return;
-      await assistDb.finishAssist(data.assistId);
-      io.to(assistRoom(data.assistId)).emit('assistance:finished', { assistId: data.assistId });
+      await assistDb.finishAssist(data.assistId, data.price);
+      io.to(assistRoom(data.assistId)).emit('assistance:finished', { assistId: data.assistId, price: data.price });
       io.to('dispatch').emit('assistance:finished', { assistId: data.assistId });
       io.socketsLeave(assistRoom(data.assistId));
     });

@@ -20,8 +20,11 @@ async function acceptAssist(assistId, mechanicId) {
   return result.rows[0] || null;
 }
 
-async function finishAssist(assistId) {
-  await db.query(`UPDATE assistance_requests SET status = 'completed', finished_at = now() WHERE id = $1`, [assistId]);
+async function finishAssist(assistId, price) {
+  await db.query(
+    `UPDATE assistance_requests SET status = 'completed', finished_at = now(), price = COALESCE($2, price) WHERE id = $1`,
+    [assistId, price || null]
+  );
 }
 
 async function cancelAssist(assistId) {

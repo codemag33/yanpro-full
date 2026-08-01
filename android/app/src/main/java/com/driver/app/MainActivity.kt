@@ -872,9 +872,7 @@ class MainActivity : AppCompatActivity() {
                 binding.tvActiveStatus.text = "Выполните помощь и завершите заявку"
                 launchYandexNavigator(currentPickupLat, currentPickupLon)
             } else {
-                rideSocket.finishAssistance(assistId)
-                clearActiveState()
-                mapController.clearAll(mapLibreMap)
+                showPriceModal(assistId, isAssist = true)
             }
             return
         }
@@ -1013,6 +1011,8 @@ class MainActivity : AppCompatActivity() {
         currentRideStatus = ""
         navigatedToPickup = false
         assistNavigated = false
+        pendingPriceRideId = null
+        pendingPriceAssistId = null
         hideActiveCard()
         hideRequestCard()
     }
@@ -1025,9 +1025,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var pendingPriceRideId: String? = null
+    private var pendingPriceAssistId: String? = null
 
-    private fun showPriceModal(rideId: String) {
-        pendingPriceRideId = rideId
+    private fun showPriceModal(rideId: String? = null, isAssist: Boolean = false) {
+        if (isAssist) {
+            pendingPriceAssistId = rideId
+        } else {
+            pendingPriceRideId = rideId
+        }
         val suggested = calculateSuggestedPrice()
         binding.tvPriceSuggestion.text = "Предлагаемая цена: %.0f ₽".format(suggested)
         binding.etPriceInput.setText("%.0f".format(suggested))
@@ -1035,18 +1040,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun confirmPrice() {
-        val rideId = pendingPriceRideId ?: return
         val priceText = binding.etPriceInput.text.toString().trim()
         val price = priceText.toDoubleOrNull()
         if (price == null || price <= 0) {
             Toast.makeText(this, "Укажите корректную цену", Toast.LENGTH_SHORT).show()
             return
         }
-        rideSocket.finishRide(rideId, price)
+        val assistId = pendingPriceAssistId
+        val rideId = pendingPriceRideId
+        if (assistId != null) {
+            rideSocket.finishAssistance(assistId, price)
+        } else if (rideId != null) {
+            rideSocket.finishRide(rideId, price)
+        } else {
+            return
+        }
         binding.priceOverlay.visibility = View.GONE
         clearActiveState()
         mapController.clearAll(mapLibreMap)
-        Toast.makeText(this, "Поездка завершена за %.0f ₽".format(price), Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Работа завершена за %.0f ₽".format(price), Toast.LENGTH_SHORT).show()
     }
 
     private fun calculateSuggestedPrice(): Double {
