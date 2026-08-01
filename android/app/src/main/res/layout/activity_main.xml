@@ -400,6 +400,16 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
             </LinearLayout>
+
+            <Button
+                android:id="@+id/btnActiveOfferPrice"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="4dp"
+                android:text="Предложить цену пассажиру"
+                android:textColor="@color/uber_yellow"
+                android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>
 

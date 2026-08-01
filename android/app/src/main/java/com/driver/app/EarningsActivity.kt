@@ -26,6 +26,8 @@ class EarningsActivity : AppCompatActivity() {
     private lateinit var binding: ActivityEarningsBinding
     private lateinit var session: SessionManager
 
+    private var currentDays = 1 // 1 | 7 | 30
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityEarningsBinding.inflate(layoutInflater)
@@ -35,6 +37,30 @@ class EarningsActivity : AppCompatActivity() {
 
         binding.btnBack.setOnClickListener { finish() }
 
+        binding.chipDay.setOnClickListener { selectPeriod(1) }
+        binding.chipWeek.setOnClickListener { selectPeriod(7) }
+        binding.chipMonth.setOnClickListener { selectPeriod(30) }
+
+        selectPeriod(1)
+    }
+
+    private fun selectPeriod(days: Int) {
+        currentDays = days
+        binding.chipDay.isChecked = days == 1
+        binding.chipWeek.isChecked = days == 7
+        binding.chipMonth.isChecked = days == 30
+        val label = when (days) {
+            7 -> "За неделю (₽)"
+            30 -> "За месяц (₽)"
+            else -> "Сегодня (₽)"
+        }
+        binding.tvStatsLabel.text = label
+        binding.tvRidesTitle.text = when (days) {
+            7 -> "📋 Поездки за неделю"
+            30 -> "📋 Поездки за месяц"
+            else -> "📋 Поездки за сегодня"
+        }
+        binding.tvChartTitle.text = "📊 График заработков (${days} дн.)"
         loadStats()
         loadHistory()
         loadChart()
@@ -44,7 +70,7 @@ class EarningsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val data = withContext(Dispatchers.IO) {
-                    apiGet("/api/driver/stats/today")
+                    apiGet("/api/driver/stats/today?days=$currentDays")
                 }
                 if (data != null) {
                     val earnings = data.optDouble("earningsToday", 0.0) ?: 0.0
@@ -74,13 +100,14 @@ class EarningsActivity : AppCompatActivity() {
                         binding.ridesListContainer.removeAllViews()
 
                         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                        val from = System.currentTimeMillis() - currentDays * 24L * 3600 * 1000
 
-                        for (i in 0 until minOf(rides.length(), 10)) {
+                        for (i in 0 until minOf(rides.length(), 30)) {
                             val ride = rides.getJSONObject(i)
                             val finishedAt = ride.optString("finished_at", "")
-                            val rideDate = if (finishedAt.length >= 10) finishedAt.substring(0, 10) else ""
+                            val ts = parseTs(finishedAt)
 
-                            if (rideDate == today && ride.optString("status") == "completed") {
+                            if (ts >= from && ride.optString("status") == "completed") {
                                 val row = createRideRow(
                                     time = finishedAt,
                                     from = ride.optString("pickup_address", ""),
@@ -101,6 +128,23 @@ class EarningsActivity : AppCompatActivity() {
                 e.printStackTrace()
             }
         }
+    }
+
+    // Устойчивый парсинг даты Postgres (с миллисекундами/Z/+00:00)
+    private fun parseTs(raw: String): Long {
+        if (raw.isEmpty()) return 0
+        val normalized = raw.replace("Z", "").replace("+00:00", "").replace("+00", "").trim()
+        val formats = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm"
+        )
+        for (fmt in formats) {
+            try {
+                SimpleDateFormat(fmt, Locale.getDefault()).parse(normalized)?.let { return it.time }
+            } catch (_: Exception) {}
+        }
+        return 0
     }
 
     private fun createRideRow(time: String, from: String, to: String, price: Double): View {
@@ -155,7 +199,7 @@ class EarningsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val data = withContext(Dispatchers.IO) {
-                    apiGet("/api/driver/earnings-history?days=7")
+                    apiGet("/api/driver/earnings-history?days=$currentDays")
                 }
                 if (data != null) {
                     val days = data.optJSONArray("days")

@@ -21,6 +21,7 @@ class SessionManager(context: Context) {
         private const val KEY_NAME = "name"
         private const val KEY_ROLE = "role"
         private const val KEY_SERVER_URL = "server_url"
+        private const val KEY_SOUND_ENABLED = "sound_enabled"
         private const val DEFAULT_SERVER_URL = "https://taxi.fbs3.ru"
     }
 
@@ -49,6 +50,11 @@ class SessionManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_SERVER_URL, value).apply()
 
     val isLoggedIn: Boolean get() = !token.isNullOrEmpty()
+
+    /** Звук/вибрация при новом заказе (вкл/выкл в настройках). */
+    var soundEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SOUND_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_SOUND_ENABLED, value).apply()
 
     fun saveAuthResult(result: AuthApi.AuthResult) {
         token = result.token

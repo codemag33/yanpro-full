@@ -74,13 +74,21 @@ class RideSocketManager(
 
     var onServerError: ((context: String) -> Unit)? = null
 
-    // ─── Callbacks: pending orders on map ──────────────────────────────────
+    // ─── Callbacks: торг ценой ─────────────────────────────────────────────
+    var onPriceAccepted: ((rideId: String, price: Double) -> Unit)? = null
+    var onPriceRejected: ((rideId: String) -> Unit)? = null
+
+    // ─── Pending orders on map ──────────────────────────────────────────
     var onPendingRides: ((rides: List<JSONObject>) -> Unit)? = null
     var onPendingAssists: ((assists: List<JSONObject>) -> Unit)? = null
     var onPendingRideCreated: ((rideId: String, lat: Double, lon: Double) -> Unit)? = null
     var onPendingAssistCreated: ((assistId: String, lat: Double, lon: Double) -> Unit)? = null
     var onPendingRideRemoved: ((rideId: String) -> Unit)? = null
     var onPendingAssistRemoved: ((assistId: String) -> Unit)? = null
+
+    // Буфер координат на время отсутствия соединения — отправляются при
+    // восстановлении связи (не теряем позицию за время обрыва).
+    private val pendingLocations = ArrayDeque<JSONObject>()
 
     fun connect() {
         if (socket?.connected() == true) return
@@ -98,6 +106,10 @@ class RideSocketManager(
 
             s.on(Socket.EVENT_CONNECT) {
                 Log.d(TAG, "connected")
+                // Выгружаем координаты, накопленные за время обрыва связи
+                while (pendingLocations.isNotEmpty()) {
+                    socket?.emit("location:update", pendingLocations.removeFirst())
+                }
                 onConnected?.invoke()
             }
 
@@ -156,6 +168,14 @@ class RideSocketManager(
             s.on("ride:passenger_location") { args ->
                 val data = args.firstOrNull() as? JSONObject ?: return@on
                 onPassengerLocation?.invoke(data.optDouble("lat"), data.optDouble("lon"))
+            }
+            // ─── Торг ценой ───────────────────────────────────────────────
+            s.on("ride:price_accepted") { args ->
+                val data = args.firstOrNull() as? JSONObject ?: return@on
+                onPriceAccepted?.invoke(data.optString("rideId"), data.optDouble("price"))
+            }
+            s.on("ride:price_rejected") { args ->
+                (args.firstOrNull() as? JSONObject)?.let { onPriceRejected?.invoke(it.optString("rideId")) }
             }
 
             // ─── Помощь на дороге ────────────────────────────────────────
@@ -254,12 +274,19 @@ class RideSocketManager(
         socket?.emit("driver:status", JSONObject().put("status", if (online) "online" else "offline"))
     }
 
-    /** rideId/assistId — если сейчас ведётся конкретная поездка/заявка, координаты уйдут и в её комнату. */
+    /** rideId/assistId — если сейчас ведётся конкретная поездка/заявка, координаты уйдут и в её комнату.
+     *  При отсутствии соединения координаты буферизуются и отправляются после восстановления связи. */
     fun sendLocation(lat: Double, lon: Double, rideId: String? = null, assistId: String? = null) {
         val payload = JSONObject().put("lat", lat).put("lon", lon)
         rideId?.let { payload.put("rideId", it) }
         assistId?.let { payload.put("assistId", it) }
-        socket?.emit("location:update", payload)
+        val s = socket
+        if (s == null || !s.connected()) {
+            pendingLocations.addLast(payload)
+            while (pendingLocations.size > 5) pendingLocations.removeFirst() // не копим бесконечно
+            return
+        }
+        s.emit("location:update", payload)
     }
 
     fun acceptRide(rideId: String) {
@@ -271,11 +298,30 @@ class RideSocketManager(
         socket?.emit("ride:start", JSONObject().put("rideId", rideId))
     }
 
-    fun finishRide(rideId: String, price: Double? = null) {
+    /**
+     * Завершение поездки с подтверждением от сервера (ack).
+     * ack(ok, error) — вызывается после ответа сервера или по таймауту (8с),
+     * чтобы водитель мог повторить попытку при обрыве связи.
+     */
+    fun finishRide(rideId: String, price: Double? = null, ack: ((Boolean, String?) -> Unit)? = null) {
         val payload = JSONObject().put("rideId", rideId)
         price?.let { payload.put("price", it) }
-        socket?.emit("ride:finish", payload)
-        if (currentRideId == rideId) currentRideId = null
+        val s = socket
+        if (s == null || !s.connected()) { ack?.invoke(false, "not_connected"); return }
+
+        var done = false
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val timeoutRunnable = Runnable { if (!done) { done = true; ack?.invoke(false, "timeout") } }
+        handler.postDelayed(timeoutRunnable, 8000)
+        s.emit("ride:finish", payload) { args ->
+            if (done) return@emit
+            done = true
+            handler.removeCallbacks(timeoutRunnable)
+            val data = args.firstOrNull() as? JSONObject
+            val ok = data?.optBoolean("ok") ?: false
+            if (ok && currentRideId == rideId) currentRideId = null
+            ack?.invoke(ok, if (ok) null else (data?.optString("error") ?: "server_error"))
+        }
     }
 
     fun cancelRide(rideId: String, reason: String? = null) {
@@ -290,11 +336,31 @@ class RideSocketManager(
         socket?.emit("assistance:accept", JSONObject().put("assistId", assistId))
     }
 
-    fun finishAssistance(assistId: String, price: Double? = null) {
+    /** Завершение заявки с подтверждением от сервера — см. finishRide. */
+    fun finishAssistance(assistId: String, price: Double? = null, ack: ((Boolean, String?) -> Unit)? = null) {
         val payload = JSONObject().put("assistId", assistId)
         price?.let { payload.put("price", it) }
-        socket?.emit("assistance:finish", payload)
-        if (currentAssistId == assistId) currentAssistId = null
+        val s = socket
+        if (s == null || !s.connected()) { ack?.invoke(false, "not_connected"); return }
+
+        var done = false
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val timeoutRunnable = Runnable { if (!done) { done = true; ack?.invoke(false, "timeout") } }
+        handler.postDelayed(timeoutRunnable, 8000)
+        s.emit("assistance:finish", payload) { args ->
+            if (done) return@emit
+            done = true
+            handler.removeCallbacks(timeoutRunnable)
+            val data = args.firstOrNull() as? JSONObject
+            val ok = data?.optBoolean("ok") ?: false
+            if (ok && currentAssistId == assistId) currentAssistId = null
+            ack?.invoke(ok, if (ok) null else (data?.optString("error") ?: "server_error"))
+        }
+    }
+
+    /** Водитель предлагает цену поездки пассажиру (торг). */
+    fun offerPrice(rideId: String, price: Double) {
+        socket?.emit("ride:price_offer", JSONObject().put("rideId", rideId).put("price", price))
     }
 
     fun cancelAssistance(assistId: String) {

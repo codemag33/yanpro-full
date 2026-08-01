@@ -169,6 +169,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Android 13+: уведомления от foreground-сервиса показываются только
+    // после явного согласия пользователя.
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         savedStateBundle = savedInstanceState
@@ -345,6 +359,18 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 currentRideId = rideId
                 showActiveRide()
+            }
+        }
+
+        rideSocket.onPriceAccepted = { rideId, price ->
+            runOnUiThread {
+                Toast.makeText(this, "Пассажир принял цену: %.0f ₽".format(price), Toast.LENGTH_LONG).show()
+            }
+        }
+
+        rideSocket.onPriceRejected = { rideId ->
+            runOnUiThread {
+                Toast.makeText(this, "Пассажир отклонил вашу цену", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -550,6 +576,14 @@ class MainActivity : AppCompatActivity() {
             rideSocket.setOnline(isOnline)
             binding.onlineDot.setBackgroundResource(if (isOnline) R.drawable.bg_online_dot else R.drawable.bg_offline_dot)
             binding.tvOnlineStatus.text = getString(if (isOnline) R.string.status_online else R.string.status_offline)
+            // Foreground-сервис удерживает процесс, пока водитель онлайн —
+            // заказы продолжают приходить и при свёрнутом приложении.
+            if (isOnline) {
+                requestNotificationPermissionIfNeeded()
+                DriverService.start(this, online = true)
+            } else {
+                DriverService.stop(this)
+            }
             Toast.makeText(this, if (isOnline) R.string.toast_went_online else R.string.toast_went_offline, Toast.LENGTH_SHORT).show()
         }
 
@@ -699,6 +733,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun vibrateAndBeep() {
+        if (!session.soundEnabled) return // звук/вибрация выключены в настройках
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -772,6 +808,34 @@ class MainActivity : AppCompatActivity() {
         binding.btnActiveCancel.setOnClickListener { cancelActiveRide() }
         binding.btnActiveAction.setOnClickListener { onActiveAction() }
         binding.btnActiveChat.setOnClickListener { openChat() }
+        binding.btnActiveOfferPrice.setOnClickListener { showOfferPriceDialog() }
+    }
+
+    // ─── Торг ценой ──────────────────────────────────────────────────────
+
+    private fun showOfferPriceDialog() {
+        val rideId = currentRideId ?: return
+        val input = EditText(this).apply {
+            setText("%.0f".format(calculateSuggestedPrice()))
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setTextColor(Color.parseColor("#FFFFFF"))
+            setHintTextColor(Color.parseColor("#888888"))
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Предложить цену")
+            .setMessage("Пассажир получит уведомление и сможет принять или отклонить вашу цену.")
+            .setView(input)
+            .setPositiveButton("Предложить") { _, _ ->
+                val price = input.text.toString().trim().toDoubleOrNull()
+                if (price == null || price <= 0) {
+                    Toast.makeText(this, "Укажите корректную цену", Toast.LENGTH_SHORT).show()
+                } else {
+                    rideSocket.offerPrice(rideId, price)
+                    Toast.makeText(this, "Цена %.0f ₽ предложена".format(price), Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
     private fun showActiveRide() {
@@ -789,9 +853,12 @@ class MainActivity : AppCompatActivity() {
         binding.tvActivePickup.text = currentPickupAddr.ifEmpty { "%.5f, %.5f".format(currentPickupLat, currentPickupLon) }
         binding.tvActiveDest.text = currentDestAddr.ifEmpty { "%.5f, %.5f".format(currentDestLat, currentDestLon) }
 
-        // Route to pickup (accepted phase)
+        // Route from driver's current location to pickup (accepted phase)
+        val loc = mapLibreMap?.locationComponent?.lastKnownLocation
+        val startLat = loc?.latitude ?: currentPickupLat
+        val startLon = loc?.longitude ?: currentPickupLon
         lifecycleScope.launch {
-            val route = withContext(Dispatchers.IO) { fetchRoute(currentPickupLon, currentPickupLat, currentPickupLon, currentPickupLat) }
+            val route = withContext(Dispatchers.IO) { fetchRoute(startLon, startLat, currentPickupLon, currentPickupLat) }
             if (route != null) {
                 runOnUiThread {
                     lastRouteDistance = route.optDouble("distance", 0.0) / 1000.0
@@ -1048,17 +1115,34 @@ class MainActivity : AppCompatActivity() {
         }
         val assistId = pendingPriceAssistId
         val rideId = pendingPriceRideId
+        binding.priceOverlay.visibility = View.GONE
         if (assistId != null) {
-            rideSocket.finishAssistance(assistId, price)
+            // Ждём подтверждения сервера; при обрыве связи — открываем модалку снова
+            rideSocket.finishAssistance(assistId, price) { ok, error ->
+                runOnUiThread {
+                    if (!ok) {
+                        Toast.makeText(this, "Не удалось завершить работу (${error ?: "нет связи"}). Повторите.", Toast.LENGTH_LONG).show()
+                        pendingPriceAssistId = assistId
+                        showPriceModal(assistId, isAssist = true)
+                    }
+                }
+            }
         } else if (rideId != null) {
-            rideSocket.finishRide(rideId, price)
+            rideSocket.finishRide(rideId, price) { ok, error ->
+                runOnUiThread {
+                    if (!ok) {
+                        Toast.makeText(this, "Не удалось завершить поездку (${error ?: "нет связи"}). Повторите.", Toast.LENGTH_LONG).show()
+                        pendingPriceRideId = rideId
+                        showPriceModal(rideId)
+                    }
+                }
+            }
         } else {
             return
         }
-        binding.priceOverlay.visibility = View.GONE
         clearActiveState()
         mapController.clearAll(mapLibreMap)
-        Toast.makeText(this, "Работа завершена за %.0f ₽".format(price), Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Заказ завершён за %.0f ₽".format(price), Toast.LENGTH_SHORT).show()
     }
 
     private fun calculateSuggestedPrice(): Double {
@@ -1178,11 +1262,13 @@ class MainActivity : AppCompatActivity() {
         val tvName = dialog.findViewById<TextView>(R.id.tvMenuName)
         val tvRole = dialog.findViewById<TextView>(R.id.tvMenuRole)
         val tvEarnings = dialog.findViewById<TextView>(R.id.tvMenuEarnings)
+        val tvRating = dialog.findViewById<TextView>(R.id.tvMenuRating)
         val tvVersion = dialog.findViewById<TextView>(R.id.tvMenuVersion)
         val btnSkipped = dialog.findViewById<Button>(R.id.btnMenuSkipped)
         val btnSettings = dialog.findViewById<Button>(R.id.btnMenuSettings)
         val btnLogout = dialog.findViewById<Button>(R.id.btnMenuLogout)
         val btnEarnings = dialog.findViewById<Button>(R.id.btnMenuEarningsPage)
+        val btnBonuses = dialog.findViewById<Button>(R.id.btnMenuBonuses)
 
         tvName.text = session.name
         tvRole.text = session.login ?: "—"
@@ -1193,13 +1279,14 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
 
         lifecycleScope.launch {
-            fetchEarnings()
+            fetchEarnings(tvEarnings to tvRating)
         }
 
         btnEarnings.setOnClickListener {
             dialog.dismiss()
             startActivity(Intent(this, EarningsActivity::class.java))
         }
+        btnBonuses.setOnClickListener { dialog.dismiss(); showBonusesDialog() }
         btnSkipped.setOnClickListener { dialog.dismiss(); showSkippedDialog() }
         btnSettings.setOnClickListener { dialog.dismiss(); openServerSettingsDialog() }
         btnLogout.setOnClickListener {
@@ -1213,7 +1300,10 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun fetchEarnings() {
+    private var lastRating = 0.0
+    private var lastReviewsCount = 0
+
+    private fun fetchEarnings(menuViews: Pair<TextView, TextView>? = null) {
         lifecycleScope.launch {
             try {
                 val url = URL(session.serverUrl.trimEnd('/') + "/api/driver/stats/today")
@@ -1227,8 +1317,17 @@ class MainActivity : AppCompatActivity() {
                     val json = org.json.JSONObject(body)
                     val earnings = json.optDouble("earningsToday", 0.0)
                     val rides = json.optInt("ridesToday", 0) + json.optInt("assistsToday", 0)
+                    lastRating = json.optDouble("rating", 0.0)
+                    lastReviewsCount = json.optInt("reviewsCount", 0)
                     runOnUiThread {
                         binding.tvEarnings.text = "%.0f ₽ · %d".format(earnings, rides)
+                        menuViews?.let { (tvE, tvR) ->
+                            tvE.text = "%.0f ₽".format(earnings)
+                            tvR.text = if (lastReviewsCount > 0)
+                                "⭐ %.1f · %d отзывов".format(lastRating, lastReviewsCount)
+                            else
+                                "⭐ Нет оценок"
+                        }
                     }
                 }
                 conn.disconnect()
@@ -1237,6 +1336,141 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    // ─── Бонусы ─────────────────────────────────────────────────────────────
+
+    private fun showBonusesDialog() {
+        val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar)
+        dialog.setContentView(R.layout.dialog_bonuses)
+
+        val tvTotal = dialog.findViewById<TextView>(R.id.tvBonusesTotal)
+        val tvEmpty = dialog.findViewById<TextView>(R.id.tvBonusesEmpty)
+        val container = dialog.findViewById<LinearLayout>(R.id.bonusesListContainer)
+        dialog.findViewById<Button>(R.id.btnBonusesClose).setOnClickListener { dialog.dismiss() }
+
+        refreshBonuses(tvTotal, tvEmpty, container, dialog)
+        dialog.show()
+    }
+
+    private fun refreshBonuses(tvTotal: TextView, tvEmpty: TextView, container: LinearLayout, dialog: Dialog) {
+        lifecycleScope.launch {
+            try {
+                val url = URL(session.serverUrl.trimEnd('/') + "/api/bonuses/my")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("Authorization", "Bearer ${session.token}")
+                conn.connectTimeout = 5000
+                conn.readTimeout = 5000
+                if (conn.responseCode == 200) {
+                    val body = BufferedReader(InputStreamReader(conn.inputStream)).readText()
+                    val json = org.json.JSONObject(body)
+                    val arr = json.optJSONArray("available") ?: org.json.JSONArray()
+                    val total = json.optDouble("totalEarned", 0.0)
+                    runOnUiThread {
+                        if (!dialog.isShowing) return@runOnUiThread
+                        tvEmpty.visibility = if (arr.length() == 0) View.VISIBLE else View.GONE
+                        tvTotal.text = "Получено: %.0f ₽".format(total)
+                        container.removeAllViews()
+                        for (i in 0 until arr.length()) {
+                            container.addView(buildBonusRow(arr.optJSONObject(i), tvTotal, tvEmpty, container))
+                        }
+                    }
+                }
+                conn.disconnect()
+            } catch (_: Exception) {
+                runOnUiThread { tvEmpty.text = "Не удалось загрузить бонусы" }
+            }
+        }
+    }
+
+    private fun buildBonusRow(b: org.json.JSONObject?, tvTotal: TextView, tvEmpty: TextView, container: LinearLayout): View {
+        val type = b?.optString("type", "") ?: ""
+        val name = b?.optString("name", "") ?: ""
+        val desc = b?.optString("description", "") ?: ""
+        val amount = b?.optDouble("amount", 0.0) ?: 0.0
+        val claimed = b?.optBoolean("claimed", false) ?: false
+        val eligible = b?.optBoolean("eligible", false) ?: false
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_search_pill)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+        val info = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        info.addView(TextView(this).apply {
+            text = "$name — %.0f ₽".format(amount)
+            setTextColor(Color.parseColor("#FFFFFF"))
+            textSize = 14f
+            paint.isFakeBoldText = true
+        })
+        info.addView(TextView(this).apply {
+            text = desc
+            setTextColor(Color.parseColor("#999999"))
+            textSize = 11f
+        })
+        row.addView(info)
+
+        val btn = Button(this, null, com.google.android.material.R.attr.buttonStyleTextButton).apply {
+            text = when {
+                claimed -> "Получен"
+                eligible -> "Забрать"
+                else -> "Условие не выполнено"
+            }
+            setTextColor(Color.parseColor(
+                when {
+                    claimed -> "#888888"
+                    eligible -> "#FFC107"
+                    else -> "#666666"
+                }
+            ))
+            textSize = 12f
+            isEnabled = !claimed
+        }
+        if (!claimed && eligible) {
+            btn.setOnClickListener {
+                btn.isEnabled = false
+                btn.text = "Запрос..."
+                lifecycleScope.launch {
+                    val code = withContext(Dispatchers.IO) {
+                        try {
+                            val url = URL(session.serverUrl.trimEnd('/') + "/api/bonuses/claim")
+                            val conn = url.openConnection() as HttpURLConnection
+                            conn.requestMethod = "POST"
+                            conn.doOutput = true
+                            conn.setRequestProperty("Content-Type", "application/json")
+                            conn.setRequestProperty("Authorization", "Bearer ${session.token}")
+                            conn.connectTimeout = 5000
+                            conn.readTimeout = 5000
+                            conn.outputStream.write(JSONObject().put("bonusType", type).toString().toByteArray())
+                            val code = conn.responseCode
+                            conn.disconnect()
+                            code
+                        } catch (_: Exception) { -1 }
+                    }
+                    if (code == 200) {
+                        Toast.makeText(this@MainActivity, "Бонус +%.0f ₽ получен!".format(amount), Toast.LENGTH_SHORT).show()
+                        refreshBonuses(tvTotal, tvEmpty, container, dialog)
+                    } else {
+                        btn.isEnabled = true
+                        btn.text = "Ошибка"
+                        Toast.makeText(this@MainActivity, "Не удалось получить бонус", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+        row.addView(btn)
+        return row
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun showSkippedDialog() {
         val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar)
@@ -1291,9 +1525,59 @@ class MainActivity : AppCompatActivity() {
         val etUrl = dialog.findViewById<EditText>(R.id.etServerUrl)
         val etName = dialog.findViewById<EditText>(R.id.etDriverName)
         val btnSave = dialog.findViewById<Button>(R.id.btnSaveServer)
+        val swSound = dialog.findViewById<com.google.android.material.switchmaterial.SwitchMaterial>(R.id.swSound)
+        val etCurrentPassword = dialog.findViewById<EditText>(R.id.etCurrentPassword)
+        val etNewPassword = dialog.findViewById<EditText>(R.id.etNewPassword)
+        val btnChangePassword = dialog.findViewById<Button>(R.id.btnChangePassword)
 
         etUrl.setText(session.serverUrl)
         etName.setText(session.name)
+        swSound.isChecked = session.soundEnabled
+        swSound.setOnCheckedChangeListener { _, checked ->
+            session.soundEnabled = checked
+            Toast.makeText(this, if (checked) "Звук включён" else "Звук выключен", Toast.LENGTH_SHORT).show()
+        }
+
+        btnChangePassword.setOnClickListener {
+            val current = etCurrentPassword.text.toString()
+            val newPass = etNewPassword.text.toString()
+            if (current.isEmpty() || newPass.length < 6) {
+                Toast.makeText(this, "Заполните оба поля (новый пароль — от 6 символов)", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            btnChangePassword.isEnabled = false
+            lifecycleScope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    try {
+                        val url = URL(session.serverUrl.trimEnd('/') + "/api/auth/change-password")
+                        val conn = url.openConnection() as HttpURLConnection
+                        conn.requestMethod = "POST"
+                        conn.doOutput = true
+                        conn.setRequestProperty("Content-Type", "application/json")
+                        conn.setRequestProperty("Authorization", "Bearer ${session.token}")
+                        conn.connectTimeout = 5000
+                        conn.readTimeout = 5000
+                        conn.outputStream.write(
+                            JSONObject()
+                                .put("currentPassword", current)
+                                .put("newPassword", newPass)
+                                .toString().toByteArray()
+                        )
+                        val code = conn.responseCode
+                        conn.disconnect()
+                        code == 200
+                    } catch (_: Exception) { false }
+                }
+                btnChangePassword.isEnabled = true
+                if (ok) {
+                    Toast.makeText(this@MainActivity, "Пароль изменён", Toast.LENGTH_SHORT).show()
+                    etCurrentPassword.setText("")
+                    etNewPassword.setText("")
+                } else {
+                    Toast.makeText(this@MainActivity, "Не удалось сменить пароль (проверьте текущий)", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
 
         btnSave.setOnClickListener {
             val newUrl = etUrl.text.toString().trim()
@@ -1404,6 +1688,7 @@ class MainActivity : AppCompatActivity() {
         binding.mapView.onDestroy()
         locationBroadcastHandler.removeCallbacksAndMessages(null)
         stopCountdown()
+        DriverService.stop(this)
     }
 
     private fun restoreSavedState(bundle: Bundle) {

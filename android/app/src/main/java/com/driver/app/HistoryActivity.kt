@@ -131,8 +131,6 @@ class HistoryActivity : AppCompatActivity() {
 
     private fun parseHistoryItems(arr: JSONArray): List<HistoryItem> {
         val items = mutableListOf<HistoryItem>()
-        val inputFmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US)
-        val outputFmt = SimpleDateFormat("d MMM, HH:mm", Locale("ru"))
 
         for (i in 0 until arr.length()) {
             val obj = arr.getJSONObject(i)
@@ -143,13 +141,11 @@ class HistoryActivity : AppCompatActivity() {
             val dest = obj.optString("destination_address", "")
             val finishedAt = obj.optString("finished_at", "")
 
-            val dateStr = try {
-                val date = inputFmt.parse(finishedAt.replace("Z", "").take(16))
-                date?.let { outputFmt.format(it) } ?: ""
-            } catch (e: Exception) { "" }
+            val dateStr = parseDate(finishedAt)
 
             val clientName = obj.optString("passenger_name", "")
             val clientPhone = obj.optString("passenger_phone", "")
+            val cancelReason = obj.optString("cancel_reason", "")
 
             items.add(
                 HistoryItem(
@@ -160,11 +156,58 @@ class HistoryActivity : AppCompatActivity() {
                     destAddress = dest,
                     date = dateStr,
                     clientName = clientName,
-                    clientPhone = clientPhone
+                    clientPhone = clientPhone,
+                    cancelReason = cancelReason
                 )
             )
         }
         return items
+    }
+
+    // Постгрес отдаёт дату в разных форматах (с миллисекундами, Z, +00:00) —
+    // пробуем все, прежде чем сдаться.
+    private fun parseDate(raw: String): String {
+        if (raw.isEmpty()) return ""
+        val outputFmt = SimpleDateFormat("d MMM, HH:mm", Locale("ru"))
+        val normalized = raw.replace("Z", "").replace("+00:00", "").replace("+00", "").trim()
+        val formats = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm"
+        )
+        for (fmt in formats) {
+            try {
+                val date = SimpleDateFormat(fmt, Locale.US).parse(normalized)
+                if (date != null) return outputFmt.format(date)
+            } catch (_: Exception) {}
+        }
+        return normalized.take(10)
+    }
+
+    private fun showDetails(item: HistoryItem) {
+        val statusLabel = when (item.status) {
+            "completed" -> getString(R.string.history_status_completed)
+            "cancelled" -> getString(R.string.history_status_cancelled)
+            else -> item.status
+        }
+        val typeLabel = if (item.type == "ride") getString(R.string.history_type_ride)
+                        else getString(R.string.history_type_assistance)
+        val details = buildString {
+            append("Тип: $typeLabel\n")
+            append("Статус: $statusLabel\n")
+            append("Дата: ${item.date}\n")
+            if (item.clientName.isNotEmpty()) append("Клиент: ${item.clientName}\n")
+            if (item.clientPhone.isNotEmpty()) append("Телефон: ${item.clientPhone}\n")
+            append("Откуда: ${item.pickupAddress.ifEmpty { "—" }}\n")
+            append("Куда: ${item.destAddress.ifEmpty { "—" }}\n")
+            if (item.cancelReason.isNotEmpty()) append("Причина отмены: $cancelReason\n")
+            if (item.price.isNotEmpty()) append("Стоимость: ${item.price}")
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Детали заказа")
+            .setMessage(details)
+            .setPositiveButton("ОК", null)
+            .show()
     }
 
     // ─── Data class ─────────────────────────────────────────────────────────
@@ -177,7 +220,8 @@ class HistoryActivity : AppCompatActivity() {
         val destAddress: String,
         val date: String,
         val clientName: String,
-        val clientPhone: String
+        val clientPhone: String,
+        val cancelReason: String = ""
     )
 
     // ─── Adapter ────────────────────────────────────────────────────────────
@@ -212,6 +256,7 @@ class HistoryActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(holder: VH, position: Int) {
             val item = items[position]
+            holder.itemView.setOnClickListener { showDetails(item) }
 
             if (item.type == "ride") {
                 holder.ivType.setImageResource(R.drawable.ic_car)

@@ -75,6 +75,73 @@
             android:paddingStart="16dp"
             android:paddingEnd="16dp" />
 
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/swSound"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Звук нового заказа"
+            android:textColor="@color/uber_text_primary"
+            android:textSize="14sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"
+            android:background="@color/uber_divider" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Смена пароля"
+            android:textColor="@color/uber_text_primary"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etCurrentPassword"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_uber_search_bar"
+            android:hint="Текущий пароль"
+            android:inputType="textPassword"
+            android:maxLines="1"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:textColor="@color/uber_text_primary"
+            android:textColorHint="@color/uber_text_hint"
+            android:textSize="14sp"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/etNewPassword"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_uber_search_bar"
+            android:hint="Новый пароль (мин. 6 символов)"
+            android:inputType="textPassword"
+            android:maxLines="1"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:textColor="@color/uber_text_primary"
+            android:textColorHint="@color/uber_text_hint"
+            android:textSize="14sp"
+            android:importantForAutofill="no" />
+
+        <Button
+            android:id="@+id/btnChangePassword"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="10dp"
+            android:text="Сменить пароль"
+            android:textColor="@color/uber_green"
+            android:textSize="14sp"
+            app:strokeColor="@color/uber_green" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

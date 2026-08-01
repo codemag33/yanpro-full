@@ -35,6 +35,49 @@
             android:textStyle="bold" />
     </LinearLayout>
 
+    <!-- Period selector -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="4dp"
+        android:background="#141414">
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chipDay"
+            style="@style/Widget.MaterialComponents.Chip.Filter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:text="Сегодня"
+            android:checked="true"
+            android:textColor="@color/uber_text_primary"
+            app:chipBackgroundColor="@color/uber_card"
+            app:chipStrokeColor="@color/uber_green" />
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chipWeek"
+            style="@style/Widget.MaterialComponents.Chip.Filter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:text="Неделя"
+            android:textColor="@color/uber_text_primary"
+            app:chipBackgroundColor="@color/uber_card"
+            app:chipStrokeColor="@color/uber_green" />
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chipMonth"
+            style="@style/Widget.MaterialComponents.Chip.Filter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Месяц"
+            android:textColor="@color/uber_text_primary"
+            app:chipBackgroundColor="@color/uber_card"
+            app:chipStrokeColor="@color/uber_green" />
+    </LinearLayout>
+
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -73,6 +116,7 @@
                         android:textStyle="bold" />
 
                     <TextView
+                        android:id="@+id/tvStatsLabel"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Сегодня (₽)"
@@ -151,6 +195,7 @@
                 android:layout_marginBottom="16dp">
 
                 <TextView
+                    android:id="@+id/tvRidesTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="📋 Поездки за сегодня"
@@ -188,6 +233,7 @@
                 android:padding="16dp">
 
                 <TextView
+                    android:id="@+id/tvChartTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="📊 График заработков (7 дней)"

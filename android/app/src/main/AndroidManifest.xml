@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
         Package visibility (Android 11+/API 30+): без этого блока
@@ -81,6 +83,11 @@
                 <action android:name="com.driver.app.ACTION_FINISH_ORDER" />
             </intent-filter>
         </receiver>
+
+        <!-- ─── Foreground-сервис: держит приём заказов при свёрнутом приложении ── -->
+        <service
+            android:name=".DriverService"
+            android:exported="false" />
 
     </application>
 </manifest>
