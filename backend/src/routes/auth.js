@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { hashPassword, verifyPassword, signToken } = require('../auth');
+const { requireAuth } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
@@ -77,6 +78,35 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error('[auth/login]', err);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// Смена пароля — только для авторизованных; старый пароль проверяется сервером.
+router.post('/change-password', requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'missing_fields' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'password_too_short' });
+    }
+
+    const result = await db.query(
+      `SELECT id, password_hash FROM users WHERE id = $1`,
+      [req.user.id]
+    );
+    const user = result.rows[0];
+    if (!user || !(await verifyPassword(currentPassword, user.password_hash))) {
+      return res.status(401).json({ error: 'invalid_credentials' });
+    }
+
+    const newHash = await hashPassword(newPassword);
+    await db.query(`UPDATE users SET password_hash = $2 WHERE id = $1`, [user.id, newHash]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[auth/change-password]', err);
     res.status(500).json({ error: 'server_error' });
   }
 });

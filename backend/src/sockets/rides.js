@@ -38,6 +38,26 @@ async function cancelRide(rideId, reason) {
   );
 }
 
+// ─── Торг ценой ─────────────────────────────────────────────────────────
+// Водитель предлагает цену: пассажир может принять её или отказаться.
+async function offerPrice(rideId, price) {
+  await db.query(
+    `UPDATE rides SET price_offer = $2 WHERE id = $1 AND status IN ('accepted', 'in_progress')`,
+    [rideId, price || null]
+  );
+}
+
+async function acceptPriceOffer(rideId) {
+  await db.query(
+    `UPDATE rides SET price = price_offer, price_offer = NULL WHERE id = $1 AND price_offer IS NOT NULL`,
+    [rideId]
+  );
+}
+
+async function rejectPriceOffer(rideId) {
+  await db.query(`UPDATE rides SET price_offer = NULL WHERE id = $1`, [rideId]);
+}
+
 // Общий SELECT, который разворачивает geography-колонки в обычные числа lat/lon —
 // иначе клиенту (Android/PWA) пришёл бы нечитаемый бинарный EWKB вместо координат.
 const RIDE_SELECT = `
@@ -88,4 +108,5 @@ async function getChatHistory(contextType, contextId, limit = 50) {
 module.exports = {
   createRide, acceptRide, startRide, finishRide, cancelRide, getRide,
   findActiveRideForUser, saveChatMessage, getChatHistory,
+  offerPrice, acceptPriceOffer, rejectPriceOffer,
 };

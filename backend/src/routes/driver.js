@@ -4,25 +4,34 @@ const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-// Статистика за сегодня — для карточки заработка на главном экране PWA водителя/механика.
+// Статистика за период — для карточки заработка на главном экране водителя/механика.
+// ?days=1 (сегодня) | 7 (неделя) | 30 (месяц)
 router.get('/stats/today', requireAuth, requireRole('driver', 'mechanic'), async (req, res) => {
   try {
+    const days = Math.min(Math.max(parseInt(req.query.days) || 1, 1), 90);
     const rides = await db.query(
       `SELECT COALESCE(SUM(price), 0) AS total, COUNT(*) AS count
        FROM rides
-       WHERE driver_id = $1 AND status = 'completed' AND finished_at >= date_trunc('day', now())`,
-      [req.user.id]
+       WHERE driver_id = $1 AND status = 'completed' AND finished_at >= now() - interval '1 day' * $2`,
+      [req.user.id, days]
     );
     const assists = await db.query(
       `SELECT COUNT(*) AS count, COALESCE(SUM(price), 0) AS total
        FROM assistance_requests
-       WHERE mechanic_id = $1 AND status = 'completed' AND finished_at >= date_trunc('day', now())`,
+       WHERE mechanic_id = $1 AND status = 'completed' AND finished_at >= now() - interval '1 day' * $2`,
+      [req.user.id, days]
+    );
+    const profile = await db.query(
+      `SELECT rating_cache, reviews_count FROM driver_profiles WHERE user_id = $1`,
       [req.user.id]
     );
+    const p = profile.rows[0];
     res.json({
       earningsToday: parseFloat(rides.rows[0].total) + parseFloat(assists.rows[0].total),
       ridesToday: parseInt(rides.rows[0].count, 10),
       assistsToday: parseInt(assists.rows[0].count, 10),
+      rating: p ? parseFloat(p.rating_cache) : 0,
+      reviewsCount: p ? parseInt(p.reviews_count, 10) : 0,
     });
   } catch (err) {
     console.error('[driver/stats]', err);

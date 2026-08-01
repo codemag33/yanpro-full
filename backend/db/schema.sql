@@ -97,5 +97,17 @@ CREATE TABLE chat_messages (
 
 CREATE INDEX idx_chat_context ON chat_messages(context_type, context_id, created_at);
 
+-- ─── Полученные бонусы (UNIQUE не даёт забрать бонус дважды) ─────────────
+CREATE TABLE bonus_claims (
+    id              bigserial PRIMARY KEY,
+    user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    bonus_type      text NOT NULL,
+    amount          numeric(10,2) NOT NULL DEFAULT 0,
+    claimed_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (user_id, bonus_type)
+);
+
+CREATE INDEX idx_bonus_claims_user ON bonus_claims(user_id);
+
 -- ─── Дефолтный админ (логин: admin, пароль: сгенерировать через scripts/create-admin.js) ─
 -- Пароль НЕ хранится тут в открытом виде — см. db/seed.js

@@ -79,9 +79,10 @@ function setupSockets(io) {
         // Диспетчерская: обновляем локацию водителя на карте в реальном времени
         socket.to('dispatch').emit('driver:location_update', { userId, lat: data.lat, lon: data.lon, role, name });
 
-        // Первое обновление локации — ищем отложенные заявки рядом
+        // Первое обновление локации — ищем отложенные заявки рядом.
+        // Только если водитель онлайн и НЕ занят (busy) активной поездкой.
         const lastCheck = pendingChecked.get(userId) || 0;
-        if (Date.now() - lastCheck > PENDING_CHECK_TTL_MS) {
+        if (status === 'online' && Date.now() - lastCheck > PENDING_CHECK_TTL_MS) {
           pendingChecked.set(userId, Date.now());
           try {
             if (role === 'driver') {
@@ -236,6 +237,9 @@ function setupSockets(io) {
       socket.join(rideRoom(ride.id));
       io.in(userRoom(ride.passenger_id)).socketsJoin(rideRoom(ride.id));
 
+      // Водитель занят — новые заказы ему не шлём, пока не завершит поездку.
+      await geo.setStatus('driver', userId, 'busy');
+
       io.to(rideRoom(ride.id)).emit('ride:accepted', {
         rideId: ride.id,
         driverId: userId,
@@ -265,21 +269,55 @@ function setupSockets(io) {
       io.to(rideRoom(data.rideId)).emit('ride:started', { rideId: data.rideId });
     });
 
-    socket.on('ride:finish', async (data) => {
+    socket.on('ride:finish', async (data, ack) => {
       if (role !== 'driver' || !data?.rideId) return;
-      await ridesDb.finishRide(data.rideId, data.price);
-      io.to(rideRoom(data.rideId)).emit('ride:finished', { rideId: data.rideId, price: data.price });
-      io.to('dispatch').emit('ride:finished', { rideId: data.rideId });
-      io.socketsLeave(rideRoom(data.rideId));
+      try {
+        await ridesDb.finishRide(data.rideId, data.price);
+        io.to(rideRoom(data.rideId)).emit('ride:finished', { rideId: data.rideId, price: data.price });
+        io.to('dispatch').emit('ride:finished', { rideId: data.rideId });
+        io.socketsLeave(rideRoom(data.rideId));
+        await geo.setStatus('driver', userId, 'online'); // снова свободен
+        if (typeof ack === 'function') ack({ ok: true, rideId: data.rideId });
+      } catch (err) {
+        console.error('[ride:finish] error', err);
+        if (typeof ack === 'function') ack({ ok: false, error: 'server_error' });
+      }
     });
 
     socket.on('ride:cancel', async (data) => {
       if (!data?.rideId) return;
+      // Сбрасываем busy у водителя (кто бы ни отменил поездку — он снова свободен)
+      try {
+        const r = await db.query(`SELECT driver_id FROM rides WHERE id = $1`, [data.rideId]);
+        if (r.rows[0]?.driver_id) await geo.setStatus('driver', r.rows[0].driver_id, 'online');
+      } catch (e) { console.error('[ride:cancel status]', e.message); }
       await ridesDb.cancelRide(data.rideId, data.reason);
       io.to(rideRoom(data.rideId)).emit('ride:cancelled', { rideId: data.rideId, by: role });
       io.to('dispatch').emit('ride:cancelled', { rideId: data.rideId });
       io.emit('pending:ride_removed', { rideId: data.rideId });
       io.socketsLeave(rideRoom(data.rideId));
+    });
+
+    // ─── Торг ценой ──────────────────────────────────────────────────────
+    // Водитель предлагает цену поездки — пассажир видит её в своём интерфейсе.
+    socket.on('ride:price_offer', async (data) => {
+      if (role !== 'driver' || !data?.rideId || !data?.price || data.price <= 0) return;
+      await ridesDb.offerPrice(data.rideId, parseFloat(data.price));
+      io.to(rideRoom(data.rideId)).emit('ride:price_offered', {
+        rideId: data.rideId, price: parseFloat(data.price),
+      });
+    });
+    // Пассажир принимает предложенную цену — она становится ценой поездки.
+    socket.on('ride:price_offer_accept', async (data) => {
+      if (role !== 'passenger' || !data?.rideId) return;
+      await ridesDb.acceptPriceOffer(data.rideId);
+      io.to(rideRoom(data.rideId)).emit('ride:price_accepted', { rideId: data.rideId });
+    });
+    // Пассажир отклоняет — предложение снимается.
+    socket.on('ride:price_offer_reject', async (data) => {
+      if (role !== 'passenger' || !data?.rideId) return;
+      await ridesDb.rejectPriceOffer(data.rideId);
+      io.to(rideRoom(data.rideId)).emit('ride:price_rejected', { rideId: data.rideId });
     });
 
     // ─── Пропуск заказа / заявки (сохранение в журнал) ──────────────────
@@ -342,6 +380,7 @@ function setupSockets(io) {
       }
       socket.join(assistRoom(assist.id));
       io.in(userRoom(assist.passenger_id)).socketsJoin(assistRoom(assist.id));
+      await geo.setStatus('mechanic', userId, 'busy'); // мастер занят
       io.to(assistRoom(assist.id)).emit('assistance:accepted', {
         assistId: assist.id, mechanicId: userId, mechanicName: name,
       });
@@ -350,16 +389,28 @@ function setupSockets(io) {
       io.emit('pending:assist_removed', { assistId: assist.id });
     });
 
-    socket.on('assistance:finish', async (data) => {
+    socket.on('assistance:finish', async (data, ack) => {
       if (role !== 'mechanic' || !data?.assistId) return;
-      await assistDb.finishAssist(data.assistId, data.price);
-      io.to(assistRoom(data.assistId)).emit('assistance:finished', { assistId: data.assistId, price: data.price });
-      io.to('dispatch').emit('assistance:finished', { assistId: data.assistId });
-      io.socketsLeave(assistRoom(data.assistId));
+      try {
+        await assistDb.finishAssist(data.assistId, data.price);
+        io.to(assistRoom(data.assistId)).emit('assistance:finished', { assistId: data.assistId, price: data.price });
+        io.to('dispatch').emit('assistance:finished', { assistId: data.assistId });
+        io.socketsLeave(assistRoom(data.assistId));
+        await geo.setStatus('mechanic', userId, 'online'); // снова свободен
+        if (typeof ack === 'function') ack({ ok: true, assistId: data.assistId });
+      } catch (err) {
+        console.error('[assistance:finish] error', err);
+        if (typeof ack === 'function') ack({ ok: false, error: 'server_error' });
+      }
     });
 
     socket.on('assistance:cancel', async (data) => {
       if (!data?.assistId) return;
+      // Сбрасываем busy у механика (кто бы ни отменил заявку — он снова свободен)
+      try {
+        const a = await db.query(`SELECT mechanic_id FROM assistance_requests WHERE id = $1`, [data.assistId]);
+        if (a.rows[0]?.mechanic_id) await geo.setStatus('mechanic', a.rows[0].mechanic_id, 'online');
+      } catch (e) { console.error('[assistance:cancel status]', e.message); }
       await assistDb.cancelAssist(data.assistId);
       io.to(assistRoom(data.assistId)).emit('assistance:cancelled', { assistId: data.assistId, by: role });
       io.to('dispatch').emit('assistance:cancelled', { assistId: data.assistId });
