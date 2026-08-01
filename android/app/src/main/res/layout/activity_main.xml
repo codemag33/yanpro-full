@@ -118,12 +118,11 @@
         android:layout_gravity="bottom"
         android:orientation="vertical"
         android:background="@drawable/bg_bottom_sheet"
-        app:behavior_hideable="false"
-        app:behavior_peekHeight="72dp"
-        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
+        android:animateLayoutChanges="true">
 
         <!-- Persistent drag handle (always visible at bottom when collapsed) -->
         <LinearLayout
+            android:id="@+id/sheetHandle"
             android:layout_width="match_parent"
             android:layout_height="72dp"
             android:gravity="center"

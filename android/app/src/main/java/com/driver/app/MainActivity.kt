@@ -19,6 +19,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
@@ -33,7 +34,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.doOnLayout
 import androidx.lifecycle.lifecycleScope
 import com.driver.app.databinding.ActivityMainBinding
-import com.google.android.material.bottomsheet.BottomSheetBehavior
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,7 +64,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var rideSocket: RideSocketManager
     private var mapLibreMap: MapLibreMap? = null
     private val mapController by lazy { com.driver.app.ui.MapController(this) }
-    private val sheetBehavior by lazy { BottomSheetBehavior.from(binding.bottomSheet) }
 
     private var mapFallbackTimer: Handler? = null
     private var mapStyleLoaded = false
@@ -921,41 +920,65 @@ class MainActivity : AppCompatActivity() {
         collapseSheet()
     }
 
+    private var sheetOpen = false
+    private var dragStartY = 0f
+    private var dragStartTranslation = 0f
+
+    private fun sheetTravel(): Float {
+        val handleHeight = 72 * resources.displayMetrics.density
+        return (binding.bottomSheet.height - handleHeight).coerceAtLeast(0f)
+    }
+
     private fun expandSheet() {
-        // Wait until the sheet has re-measured with the newly-visible content,
-        // otherwise fitToContents computes the expanded offset from the stale
-        // (handle-only) height and the sheet animates up then snaps back down.
+        sheetOpen = true
+        animateSheetTo(0f)
+    }
+
+    private fun collapseSheet() {
+        sheetOpen = false
+        // Wait for re-layout (card just went GONE) so travel matches the
+        // shrunken sheet height — otherwise the handle could slide off-screen.
         binding.bottomSheet.doOnLayout {
-            if (hasSheetContent() && sheetBehavior.state != BottomSheetBehavior.STATE_EXPANDED) {
-                sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
-            }
+            animateSheetTo(if (hasSheetContent()) sheetTravel() else 0f)
         }
+    }
+
+    private fun animateSheetTo(target: Float) {
+        binding.bottomSheet.animate()
+            .translationY(target)
+            .setDuration(200)
+            .start()
     }
 
     private fun hasSheetContent(): Boolean =
         binding.requestCard.visibility == View.VISIBLE || binding.activeCard.visibility == View.VISIBLE
 
-    private fun collapseSheet() {
-        binding.bottomSheet.doOnLayout {
-            if (!hasSheetContent() && sheetBehavior.state != BottomSheetBehavior.STATE_COLLAPSED) {
-                sheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+    private fun setupBottomSheet() {
+        binding.sheetHandle.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    dragStartY = event.rawY
+                    dragStartTranslation = binding.bottomSheet.translationY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val delta = event.rawY - dragStartY
+                    binding.bottomSheet.translationY =
+                        (dragStartTranslation + delta).coerceIn(0f, sheetTravel())
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    v.performClick()
+                    val travel = sheetTravel()
+                    val target = if (binding.bottomSheet.translationY > travel / 2f) travel else 0f
+                    sheetOpen = target == 0f
+                    animateSheetTo(target)
+                    true
+                }
+                else -> false
             }
         }
-    }
-
-    private fun setupBottomSheet() {
-        sheetBehavior.isHideable = false
-        sheetBehavior.isFitToContents = true
-        sheetBehavior.addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
-            override fun onStateChanged(bottomSheet: android.view.View, newState: Int) {
-                if (newState == BottomSheetBehavior.STATE_COLLAPSED && hasSheetContent()) {
-                    // Content is visible but sheet got collapsed — re-expand it.
-                    bottomSheet.post { sheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED }
-                }
-            }
-            override fun onSlide(bottomSheet: android.view.View, slideOffset: Float) {}
-        })
-        collapseSheet()
+        binding.bottomSheet.post { binding.bottomSheet.translationY = sheetTravel() }
     }
 
     private fun clearActiveState() {
