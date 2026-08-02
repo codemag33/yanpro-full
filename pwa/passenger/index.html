@@ -242,6 +242,13 @@ document.getElementById('btnLogin').onclick = async () => {
   } catch (e) { authError.textContent = 'Неверный логин или пароль'; }
 };
 
+// Enter в полях логина/пароля = вход без нажатия кнопки
+for (const id of ['loginLogin', 'loginPass']) {
+  document.getElementById(id).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btnLogin').click(); }
+  });
+}
+
 document.getElementById('btnRegister').onclick = async () => {
   const name = document.getElementById('regName').value.trim();
   const login = document.getElementById('regLogin').value.trim();
@@ -255,6 +262,13 @@ document.getElementById('btnRegister').onclick = async () => {
     authError.textContent = e.message === 'login_taken' ? 'Такой логин уже занят' : 'Ошибка регистрации';
   }
 };
+
+// Enter в полях регистрации = регистрация без нажатия кнопки
+for (const id of ['regName', 'regLogin', 'regPhone', 'regPass']) {
+  document.getElementById(id).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btnRegister').click(); }
+  });
+}
 
 function onAuthSuccess(data) {
   state.token = data.token;
