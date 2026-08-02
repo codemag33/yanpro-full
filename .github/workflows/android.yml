@@ -14,6 +14,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # для обновления GitHub Release latest-apk
     defaults:
       run:
         working-directory: android
@@ -42,3 +44,16 @@ jobs:
           name: driver-app-debug
           path: android/app/build/outputs/apk/debug/*.apk
           retention-days: 14
+
+      - name: Publish APK to Release (latest-apk)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk /tmp/yanpro-driver.apk
+          gh release view latest-apk --repo "${{ github.repository }}" >/dev/null 2>&1 \
+            || gh release create latest-apk --repo "${{ github.repository }}" \
+               --title "Latest APK" --notes "Последняя сборка приложения водителя (обновляется автоматически)"
+          gh release upload latest-apk /tmp/yanpro-driver.apk \
+            --repo "${{ github.repository }}" --clobber
+          echo "APK опубликован: https://github.com/${{ github.repository }}/releases/download/latest-apk/yanpro-driver.apk"

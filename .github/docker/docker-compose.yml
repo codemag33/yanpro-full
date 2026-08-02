@@ -41,6 +41,10 @@ services:
       PORT: 3002
     ports:
       - "3002:3002"
+    volumes:
+      # Папка с APK на хосте — доступна по постоянной ссылке /apk/yanpro-driver.apk.
+      # Обновляется скриптом scripts/update-apk.sh (забирает из GitHub Release latest-apk).
+      - ../../apk:/app/apk
     depends_on:
       postgres:
         condition: service_healthy

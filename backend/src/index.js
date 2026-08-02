@@ -46,6 +46,9 @@ app.use('/passenger', express.static('passenger'));
 app.use('/driver', express.static('driver'));
 app.use('/admin', express.static('admin'));
 app.use('/pwa', express.static('.'));
+// Постоянная ссылка на APK водителя: /apk/yanpro-driver.apk
+// (папка apk/ монтируется в контейнер с хоста и обновляется скриптом update-apk.sh)
+app.use('/apk', express.static('apk'));
 app.get('/', (_, res) => res.redirect('/passenger/'));
 
 const server = http.createServer(app);
