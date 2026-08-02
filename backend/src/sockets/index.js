@@ -1,4 +1,5 @@
 const { verifyToken } = require('../auth');
+const { EVENTS } = require('../../shared/protocol');
 const db = require('../db');
 const geo = require('./geo');
 const ridesDb = require('./rides');
@@ -33,9 +34,9 @@ function setupSockets(io) {
          RETURNING id`
       );
       for (const r of rides.rows) {
-        io.to(rideRoom(r.id)).emit('ride:cancelled', { rideId: r.id, by: 'system', reason: 'timeout' });
-        io.to('dispatch').emit('ride:cancelled', { rideId: r.id });
-        io.emit('pending:ride_removed', { rideId: r.id });
+        io.to(rideRoom(r.id)).emit(EVENTS.RIDE_CANCELLED, { rideId: r.id, by: 'system', reason: 'timeout' });
+        io.to('dispatch').emit(EVENTS.RIDE_CANCELLED, { rideId: r.id });
+        io.emit(EVENTS.PENDING_RIDE_REMOVED, { rideId: r.id });
         io.socketsLeave(rideRoom(r.id));
         notifiedDriversMap.delete(r.id);
       }
@@ -47,9 +48,9 @@ function setupSockets(io) {
          RETURNING id`
       );
       for (const a of assists.rows) {
-        io.to(assistRoom(a.id)).emit('assistance:cancelled', { assistId: a.id, by: 'system' });
-        io.to('dispatch').emit('assistance:cancelled', { assistId: a.id });
-        io.emit('pending:assist_removed', { assistId: a.id });
+        io.to(assistRoom(a.id)).emit(EVENTS.ASSIST_CANCELLED, { assistId: a.id, by: 'system' });
+        io.to('dispatch').emit(EVENTS.ASSIST_CANCELLED, { assistId: a.id });
+        io.emit(EVENTS.PENDING_ASSIST_REMOVED, { assistId: a.id });
         io.socketsLeave(assistRoom(a.id));
       }
       if (assists.rowCount) console.log(`[expiry] снято заявок: ${assists.rowCount}`);
@@ -85,19 +86,19 @@ function setupSockets(io) {
       const activeRide = await ridesDb.findActiveRideForUser(userId);
       if (activeRide) {
         socket.join(rideRoom(activeRide.id));
-        socket.emit('session:restore_ride', activeRide);
+        socket.emit(EVENTS.SESSION_RESTORE_RIDE, activeRide);
       }
       const activeAssist = await assistDb.findActiveAssistForUser(userId);
       if (activeAssist) {
         socket.join(assistRoom(activeAssist.id));
-        socket.emit('session:restore_assist', activeAssist);
+        socket.emit(EVENTS.SESSION_RESTORE_ASSIST, activeAssist);
       }
     } catch (err) {
       console.error('[session:restore] error', err);
     }
 
     // ─── Обновление геолокации (водитель/механик) ──────────────────────
-    socket.on('location:update', async (data) => {
+    socket.on(EVENTS.LOCATION_UPDATE, async (data) => {
       if (typeof data?.lat !== 'number' || typeof data?.lon !== 'number') return;
 
       if (role === 'driver' || role === 'mechanic') {
@@ -111,10 +112,10 @@ function setupSockets(io) {
           await geo.setLocation(role, userId, data.lon, data.lat, { socketId: socket.id, name });
         }
         // Шлём координаты только в комнату конкретной поездки, а не всем подряд.
-        if (data.rideId) socket.to(rideRoom(data.rideId)).emit('ride:driver_location', { lat: data.lat, lon: data.lon });
-        if (data.assistId) socket.to(assistRoom(data.assistId)).emit('assistance:driver_location', { lat: data.lat, lon: data.lon });
+        if (data.rideId) socket.to(rideRoom(data.rideId)).emit(EVENTS.RIDE_DRIVER_LOCATION, { lat: data.lat, lon: data.lon });
+        if (data.assistId) socket.to(assistRoom(data.assistId)).emit(EVENTS.ASSIST_DRIVER_LOCATION, { lat: data.lat, lon: data.lon });
         // Диспетчерская: обновляем локацию водителя на карте в реальном времени
-        socket.to('dispatch').emit('driver:location_update', { userId, lat: data.lat, lon: data.lon, role, name });
+        socket.to('dispatch').emit(EVENTS.DRIVER_LOCATION_UPDATE, { userId, lat: data.lat, lon: data.lon, role, name });
 
         // Первое обновление локации — ищем отложенные заявки рядом.
         // Только если водитель онлайн и НЕ занят (busy) активной поездкой.
@@ -134,7 +135,7 @@ function setupSockets(io) {
                 [data.lon, data.lat]
               );
               for (const r of pending.rows) {
-                io.to(userRoom(userId)).emit('ride:new_request', {
+                io.to(userRoom(userId)).emit(EVENTS.RIDE_NEW_REQUEST, {
                   rideId: r.id,
                   passengerName: 'Пассажир',
                   pickup: { lat: r.lat, lon: r.lon },
@@ -155,7 +156,7 @@ function setupSockets(io) {
                 [data.lon, data.lat]
               );
               for (const a of pending.rows) {
-                io.to(userRoom(userId)).emit('assistance:new_request', {
+                io.to(userRoom(userId)).emit(EVENTS.ASSIST_NEW_REQUEST, {
                   assistId: a.id,
                   passengerName: 'Пассажир',
                   pickup: { lat: a.lat, lon: a.lon },
@@ -175,12 +176,12 @@ function setupSockets(io) {
       // Пассажир тоже может слать своё местоположение — полезно водителю на подъезде к точке А.
       // Рассылаем только в комнату активной поездки, аналогично.
       if (role === 'passenger') {
-        if (data.rideId) socket.to(rideRoom(data.rideId)).emit('ride:passenger_location', { lat: data.lat, lon: data.lon });
-        if (data.assistId) socket.to(assistRoom(data.assistId)).emit('assistance:passenger_location', { lat: data.lat, lon: data.lon });
+        if (data.rideId) socket.to(rideRoom(data.rideId)).emit(EVENTS.RIDE_PASSENGER_LOCATION, { lat: data.lat, lon: data.lon });
+        if (data.assistId) socket.to(assistRoom(data.assistId)).emit(EVENTS.ASSIST_PASSENGER_LOCATION, { lat: data.lat, lon: data.lon });
       }
     });
 
-    socket.on('driver:status', async (data) => {
+    socket.on(EVENTS.DRIVER_STATUS, async (data) => {
       if (role !== 'driver' && role !== 'mechanic') return;
       const status = data?.status === 'online' ? 'online' : 'offline';
       if (status === 'offline') {
@@ -198,7 +199,7 @@ function setupSockets(io) {
     });
 
     // ─── Список активных заказов на карту ──────────────────────────────────
-    socket.on('pending:list', async () => {
+    socket.on(EVENTS.PENDING_LIST, async () => {
       if (role !== 'driver' && role !== 'mechanic') return;
       try {
         const rides = await db.query(
@@ -206,21 +207,21 @@ function setupSockets(io) {
            FROM rides WHERE status = 'searching'
            ORDER BY created_at ASC LIMIT 50`
         );
-        socket.emit('pending:rides', rides.rows);
+        socket.emit(EVENTS.PENDING_RIDES, rides.rows);
         if (role === 'mechanic') {
           const assists = await db.query(
             `SELECT id, ST_Y(pickup::geometry) AS lat, ST_X(pickup::geometry) AS lon
              FROM assistance_requests WHERE status = 'waiting'
              ORDER BY created_at ASC LIMIT 50`
           );
-          socket.emit('pending:assists', assists.rows);
+          socket.emit(EVENTS.PENDING_ASSISTS, assists.rows);
         }
       } catch (e) { console.error('[pending:list]', e.message); }
     });
 
     // ─── Возобновить свободную заявку (клик по кружку на карте или по пропущенной) ──
     // Отправляет заявку в личный канал водителя/механика, если она ещё свободна.
-    socket.on('ride:reactivate', async (data, ack) => {
+    socket.on(EVENTS.RIDE_REACTIVATE, async (data, ack) => {
       if (role !== 'driver' || !data?.rideId) return;
       try {
         const r = await db.query(
@@ -237,7 +238,7 @@ function setupSockets(io) {
           return;
         }
         const ride = r.rows[0];
-        socket.emit('ride:new_request', {
+        socket.emit(EVENTS.RIDE_NEW_REQUEST, {
           rideId: ride.id,
           passengerName: ride.passenger_name || 'Пассажир',
           pickup: { lat: ride.lat, lon: ride.lon },
@@ -252,7 +253,7 @@ function setupSockets(io) {
       }
     });
 
-    socket.on('assist:reactivate', async (data, ack) => {
+    socket.on(EVENTS.ASSIST_REACTIVATE, async (data, ack) => {
       if (role !== 'mechanic' || !data?.assistId) return;
       try {
         const a = await db.query(
@@ -268,7 +269,7 @@ function setupSockets(io) {
           return;
         }
         const assist = a.rows[0];
-        socket.emit('assistance:new_request', {
+        socket.emit(EVENTS.ASSIST_NEW_REQUEST, {
           assistId: assist.id,
           passengerName: assist.passenger_name || 'Пассажир',
           pickup: { lat: assist.lat, lon: assist.lon },
@@ -286,7 +287,7 @@ function setupSockets(io) {
     });
 
     // ─── Поездка: запрос от пассажира ───────────────────────────────────
-    socket.on('ride:request', async (data) => {
+    socket.on(EVENTS.RIDE_REQUEST, async (data) => {
       if (role !== 'passenger') return;
       if (!data?.pickup || !data?.destination) return;
 
@@ -305,7 +306,7 @@ function setupSockets(io) {
         // Запоминаем кому отправили, чтобы потом закрыть только им
         const notifiedDriverIds = [];
         for (const d of nearby) {
-          io.to(userRoom(d.userId)).emit('ride:new_request', {
+          io.to(userRoom(d.userId)).emit(EVENTS.RIDE_NEW_REQUEST, {
             rideId: ride.id,
             passengerName: name,
             pickup: data.pickup,
@@ -317,25 +318,25 @@ function setupSockets(io) {
         }
         // Сохраняем список уведомлённых в ride (для ride:closed_for_others)
         notifiedDriversMap.set(ride.id, notifiedDriverIds);
-        socket.emit('ride:created', { rideId: ride.id, driversNotified: nearby.length });
-        io.to('dispatch').emit('ride:created', { rideId: ride.id });
+        socket.emit(EVENTS.RIDE_CREATED, { rideId: ride.id, driversNotified: nearby.length });
+        io.to('dispatch').emit(EVENTS.RIDE_CREATED, { rideId: ride.id });
         // Показываем заказ на картах всех онлайн-водителей
-        io.emit('pending:ride_created', { id: ride.id, lat: data.pickup.lat, lon: data.pickup.lon });
+        io.emit(EVENTS.PENDING_RIDE_CREATED, { id: ride.id, lat: data.pickup.lat, lon: data.pickup.lon });
       } catch (err) {
         console.error('[ride:request] error', err);
-        socket.emit('error:server', { context: 'ride:request' });
+        socket.emit(EVENTS.ERROR_SERVER, { context: EVENTS.RIDE_REQUEST });
       }
     });
 
     // ─── Поездка: принятие водителем ────────────────────────────────────
-    socket.on('ride:accept', async (data) => {
+    socket.on(EVENTS.RIDE_ACCEPT, async (data) => {
       if (role !== 'driver') return;
       if (!data?.rideId) return;
 
       const ride = await ridesDb.acceptRide(data.rideId, userId);
       if (!ride) {
         // Поездку уже забрал другой водитель раньше нас.
-        socket.emit('ride:already_taken', { rideId: data.rideId });
+        socket.emit(EVENTS.RIDE_ALREADY_TAKEN, { rideId: data.rideId });
         return;
       }
 
@@ -345,41 +346,41 @@ function setupSockets(io) {
       // Водитель занят — новые заказы ему не шлём, пока не завершит поездку.
       await geo.setStatus('driver', userId, 'busy');
 
-      io.to(rideRoom(ride.id)).emit('ride:accepted', {
+      io.to(rideRoom(ride.id)).emit(EVENTS.RIDE_ACCEPTED, {
         rideId: ride.id,
         driverId: userId,
         driverName: name,
       });
-      io.to('dispatch').emit('ride:accepted', { rideId: ride.id });
-      io.emit('pending:ride_removed', { rideId: ride.id });
+      io.to('dispatch').emit(EVENTS.RIDE_ACCEPTED, { rideId: ride.id });
+      io.emit(EVENTS.PENDING_RIDE_REMOVED, { rideId: ride.id });
 
       // Уведомляем ТОЛЬКО тех водителей, которым отправляли заказ
       const notifiedIds = notifiedDriversMap.get(ride.id);
       if (notifiedIds) {
         for (const driverId of notifiedIds) {
           if (driverId !== userId) {
-            io.to(userRoom(driverId)).emit('ride:closed_for_others', { rideId: ride.id });
+            io.to(userRoom(driverId)).emit(EVENTS.RIDE_CLOSED_FOR_OTHERS, { rideId: ride.id });
           }
         }
         notifiedDriversMap.delete(ride.id);
       } else {
         // Fallback: если список не сохранился (рестарт сервера) — broadcast
-        socket.broadcast.emit('ride:closed_for_others', { rideId: ride.id });
+        socket.broadcast.emit(EVENTS.RIDE_CLOSED_FOR_OTHERS, { rideId: ride.id });
       }
     });
 
-    socket.on('ride:start', async (data) => {
+    socket.on(EVENTS.RIDE_START, async (data) => {
       if (role !== 'driver' || !data?.rideId) return;
       await ridesDb.startRide(data.rideId);
-      io.to(rideRoom(data.rideId)).emit('ride:started', { rideId: data.rideId });
+      io.to(rideRoom(data.rideId)).emit(EVENTS.RIDE_STARTED, { rideId: data.rideId });
     });
 
-    socket.on('ride:finish', async (data, ack) => {
+    socket.on(EVENTS.RIDE_FINISH, async (data, ack) => {
       if (role !== 'driver' || !data?.rideId) return;
       try {
         await ridesDb.finishRide(data.rideId, data.price);
-        io.to(rideRoom(data.rideId)).emit('ride:finished', { rideId: data.rideId, price: data.price });
-        io.to('dispatch').emit('ride:finished', { rideId: data.rideId });
+        io.to(rideRoom(data.rideId)).emit(EVENTS.RIDE_FINISHED, { rideId: data.rideId, price: data.price });
+        io.to('dispatch').emit(EVENTS.RIDE_FINISHED, { rideId: data.rideId });
         io.socketsLeave(rideRoom(data.rideId));
         await geo.setStatus('driver', userId, 'online'); // снова свободен
         if (typeof ack === 'function') ack({ ok: true, rideId: data.rideId });
@@ -389,7 +390,7 @@ function setupSockets(io) {
       }
     });
 
-    socket.on('ride:cancel', async (data) => {
+    socket.on(EVENTS.RIDE_CANCEL, async (data) => {
       if (!data?.rideId) return;
       // Сбрасываем busy у водителя (кто бы ни отменил поездку — он снова свободен)
       try {
@@ -397,36 +398,36 @@ function setupSockets(io) {
         if (r.rows[0]?.driver_id) await geo.setStatus('driver', r.rows[0].driver_id, 'online');
       } catch (e) { console.error('[ride:cancel status]', e.message); }
       await ridesDb.cancelRide(data.rideId, data.reason);
-      io.to(rideRoom(data.rideId)).emit('ride:cancelled', { rideId: data.rideId, by: role });
-      io.to('dispatch').emit('ride:cancelled', { rideId: data.rideId });
-      io.emit('pending:ride_removed', { rideId: data.rideId });
+      io.to(rideRoom(data.rideId)).emit(EVENTS.RIDE_CANCELLED, { rideId: data.rideId, by: role });
+      io.to('dispatch').emit(EVENTS.RIDE_CANCELLED, { rideId: data.rideId });
+      io.emit(EVENTS.PENDING_RIDE_REMOVED, { rideId: data.rideId });
       io.socketsLeave(rideRoom(data.rideId));
     });
 
     // ─── Торг ценой ──────────────────────────────────────────────────────
     // Водитель предлагает цену поездки — пассажир видит её в своём интерфейсе.
-    socket.on('ride:price_offer', async (data) => {
+    socket.on(EVENTS.RIDE_PRICE_OFFER, async (data) => {
       if (role !== 'driver' || !data?.rideId || !data?.price || data.price <= 0) return;
       await ridesDb.offerPrice(data.rideId, parseFloat(data.price));
-      io.to(rideRoom(data.rideId)).emit('ride:price_offered', {
+      io.to(rideRoom(data.rideId)).emit(EVENTS.RIDE_PRICE_OFFERED, {
         rideId: data.rideId, price: parseFloat(data.price),
       });
     });
     // Пассажир принимает предложенную цену — она становится ценой поездки.
-    socket.on('ride:price_offer_accept', async (data) => {
+    socket.on(EVENTS.RIDE_PRICE_OFFER_ACCEPT, async (data) => {
       if (role !== 'passenger' || !data?.rideId) return;
       await ridesDb.acceptPriceOffer(data.rideId);
-      io.to(rideRoom(data.rideId)).emit('ride:price_accepted', { rideId: data.rideId });
+      io.to(rideRoom(data.rideId)).emit(EVENTS.RIDE_PRICE_ACCEPTED, { rideId: data.rideId });
     });
     // Пассажир отклоняет — предложение снимается.
-    socket.on('ride:price_offer_reject', async (data) => {
+    socket.on(EVENTS.RIDE_PRICE_OFFER_REJECT, async (data) => {
       if (role !== 'passenger' || !data?.rideId) return;
       await ridesDb.rejectPriceOffer(data.rideId);
-      io.to(rideRoom(data.rideId)).emit('ride:price_rejected', { rideId: data.rideId });
+      io.to(rideRoom(data.rideId)).emit(EVENTS.RIDE_PRICE_REJECTED, { rideId: data.rideId });
     });
 
     // ─── Пропуск заказа / заявки (сохранение в журнал) ──────────────────
-    socket.on('ride:skip', async (data) => {
+    socket.on(EVENTS.RIDE_SKIP, async (data) => {
       if (!data?.rideId) return;
       try {
         await db.query(
@@ -435,7 +436,7 @@ function setupSockets(io) {
         );
       } catch (e) { console.error('[ride:skip]', e.message); }
     });
-    socket.on('assistance:skip', async (data) => {
+    socket.on(EVENTS.ASSIST_SKIP, async (data) => {
       if (!data?.assistId) return;
       try {
         await db.query(
@@ -446,7 +447,7 @@ function setupSockets(io) {
     });
 
     // ─── Заявка на помощь (механик) — та же логика, отдельные комнаты ──
-    socket.on('assistance:request', async (data) => {
+    socket.on(EVENTS.ASSIST_REQUEST, async (data) => {
       if (role !== 'passenger') return;
       if (!data?.pickup) return;
 
@@ -463,7 +464,7 @@ function setupSockets(io) {
 
       const nearby = await geo.findNearby('mechanic', data.pickup.lon, data.pickup.lat, 25, 20);
       for (const m of nearby) {
-        io.to(userRoom(m.userId)).emit('assistance:new_request', {
+        io.to(userRoom(m.userId)).emit(EVENTS.ASSIST_NEW_REQUEST, {
           assistId: assist.id,
           passengerName: name,
           pickup: data.pickup,
@@ -474,34 +475,34 @@ function setupSockets(io) {
           description: data.description,
         });
       }
-      socket.emit('assistance:created', { assistId: assist.id, mechanicsNotified: nearby.length });
-      io.emit('pending:assist_created', { id: assist.id, lat: data.pickup.lat, lon: data.pickup.lon });
+      socket.emit(EVENTS.ASSIST_CREATED, { assistId: assist.id, mechanicsNotified: nearby.length });
+      io.emit(EVENTS.PENDING_ASSIST_CREATED, { id: assist.id, lat: data.pickup.lat, lon: data.pickup.lon });
     });
 
-    socket.on('assistance:accept', async (data) => {
+    socket.on(EVENTS.ASSIST_ACCEPT, async (data) => {
       if (role !== 'mechanic' || !data?.assistId) return;
       const assist = await assistDb.acceptAssist(data.assistId, userId);
       if (!assist) {
-        socket.emit('assistance:already_taken', { assistId: data.assistId });
+        socket.emit(EVENTS.ASSIST_ALREADY_TAKEN, { assistId: data.assistId });
         return;
       }
       socket.join(assistRoom(assist.id));
       io.in(userRoom(assist.passenger_id)).socketsJoin(assistRoom(assist.id));
       await geo.setStatus('mechanic', userId, 'busy'); // мастер занят
-      io.to(assistRoom(assist.id)).emit('assistance:accepted', {
+      io.to(assistRoom(assist.id)).emit(EVENTS.ASSIST_ACCEPTED, {
         assistId: assist.id, mechanicId: userId, mechanicName: name,
       });
-      socket.broadcast.emit('assistance:closed_for_others', { assistId: assist.id });
-      io.to('dispatch').emit('assistance:accepted', { assistId: assist.id });
-      io.emit('pending:assist_removed', { assistId: assist.id });
+      socket.broadcast.emit(EVENTS.ASSIST_CLOSED_FOR_OTHERS, { assistId: assist.id });
+      io.to('dispatch').emit(EVENTS.ASSIST_ACCEPTED, { assistId: assist.id });
+      io.emit(EVENTS.PENDING_ASSIST_REMOVED, { assistId: assist.id });
     });
 
-    socket.on('assistance:finish', async (data, ack) => {
+    socket.on(EVENTS.ASSIST_FINISH, async (data, ack) => {
       if (role !== 'mechanic' || !data?.assistId) return;
       try {
         await assistDb.finishAssist(data.assistId, data.price);
-        io.to(assistRoom(data.assistId)).emit('assistance:finished', { assistId: data.assistId, price: data.price });
-        io.to('dispatch').emit('assistance:finished', { assistId: data.assistId });
+        io.to(assistRoom(data.assistId)).emit(EVENTS.ASSIST_FINISHED, { assistId: data.assistId, price: data.price });
+        io.to('dispatch').emit(EVENTS.ASSIST_FINISHED, { assistId: data.assistId });
         io.socketsLeave(assistRoom(data.assistId));
         await geo.setStatus('mechanic', userId, 'online'); // снова свободен
         if (typeof ack === 'function') ack({ ok: true, assistId: data.assistId });
@@ -511,7 +512,7 @@ function setupSockets(io) {
       }
     });
 
-    socket.on('assistance:cancel', async (data) => {
+    socket.on(EVENTS.ASSIST_CANCEL, async (data) => {
       if (!data?.assistId) return;
       // Сбрасываем busy у механика (кто бы ни отменил заявку — он снова свободен)
       try {
@@ -519,14 +520,14 @@ function setupSockets(io) {
         if (a.rows[0]?.mechanic_id) await geo.setStatus('mechanic', a.rows[0].mechanic_id, 'online');
       } catch (e) { console.error('[assistance:cancel status]', e.message); }
       await assistDb.cancelAssist(data.assistId);
-      io.to(assistRoom(data.assistId)).emit('assistance:cancelled', { assistId: data.assistId, by: role });
-      io.to('dispatch').emit('assistance:cancelled', { assistId: data.assistId });
-      io.emit('pending:assist_removed', { assistId: data.assistId });
+      io.to(assistRoom(data.assistId)).emit(EVENTS.ASSIST_CANCELLED, { assistId: data.assistId, by: role });
+      io.to('dispatch').emit(EVENTS.ASSIST_CANCELLED, { assistId: data.assistId });
+      io.emit(EVENTS.PENDING_ASSIST_REMOVED, { assistId: data.assistId });
       io.socketsLeave(assistRoom(data.assistId));
     });
 
     // ─── Чат — строго внутри комнаты контекста, никто посторонний не видит ─
-    socket.on('chat:send', async (data) => {
+    socket.on(EVENTS.CHAT_SEND, async (data) => {
       const { contextType, contextId, text } = data || {};
       if (!contextType || !contextId || !text) return;
       if (!['ride', 'assist'].includes(contextType)) return;
@@ -536,7 +537,7 @@ function setupSockets(io) {
       // Отправляем, только если сокет реально состоит в этой комнате — иначе можно было бы
       // писать в чужой чат, просто угадав id.
       if (!socket.rooms.has(room)) {
-        socket.emit('error:server', { context: 'chat:send', reason: 'not_in_room' });
+        socket.emit(EVENTS.ERROR_SERVER, { context: EVENTS.CHAT_SEND, reason: 'not_in_room' });
         return;
       }
 
@@ -544,19 +545,19 @@ function setupSockets(io) {
         contextType, contextId, senderId: userId, senderRole: role, text,
       });
 
-      io.to(room).emit('chat:message', {
+      io.to(room).emit(EVENTS.CHAT_MESSAGE, {
         contextType, contextId, senderId: userId, senderRole: role,
         text, createdAt: saved.created_at,
       });
     });
 
-    socket.on('chat:history', async (data) => {
+    socket.on(EVENTS.CHAT_HISTORY, async (data) => {
       const { contextType, contextId } = data || {};
       if (!contextType || !contextId) return;
       const room = contextType === 'ride' ? rideRoom(contextId) : assistRoom(contextId);
       if (!socket.rooms.has(room)) return;
       const history = await ridesDb.getChatHistory(contextType, contextId);
-      socket.emit('chat:history', { contextType, contextId, messages: history });
+      socket.emit(EVENTS.CHAT_HISTORY, { contextType, contextId, messages: history });
     });
 
     // ─── Отключение ──────────────────────────────────────────────────────

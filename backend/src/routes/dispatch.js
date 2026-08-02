@@ -1,4 +1,5 @@
 const express = require('express');
+const { EVENTS } = require('../../shared/protocol');
 const db = require('../db');
 const redis = require('../redis');
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
@@ -97,13 +98,13 @@ router.post('/assign', requireAuth, requireRole('admin'), async (req, res) => {
           WHERE r.id = $1`, [rideId]);
         const rideData = fullRide.rows[0];
         if (rideData) {
-          io.to(`user_${driverId}`).emit('session:restore_ride', rideData);
+          io.to(`user_${driverId}`).emit(EVENTS.SESSION_RESTORE_RIDE, rideData);
         }
         // Уведомляем пассажира
         if (result.rows[0].passenger_id) {
-          io.to(`user_${result.rows[0].passenger_id}`).emit('ride:accepted', { rideId, driverId });
+          io.to(`user_${result.rows[0].passenger_id}`).emit(EVENTS.RIDE_ACCEPTED, { rideId, driverId });
         }
-        io.to('dispatch').emit('ride:accepted', { rideId });
+        io.to('dispatch').emit(EVENTS.RIDE_ACCEPTED, { rideId });
       }
       res.json({ ok: true });
     } else if (type === 'assist') {
@@ -117,11 +118,11 @@ router.post('/assign', requireAuth, requireRole('admin'), async (req, res) => {
 
       const io = req.app.get('io');
       if (io) {
-        io.to(`user_${driverId}`).emit('session:restore_assist', { id: rideId, status: 'accepted' });
+        io.to(`user_${driverId}`).emit(EVENTS.SESSION_RESTORE_ASSIST, { id: rideId, status: 'accepted' });
         if (result.rows[0].passenger_id) {
-          io.to(`user_${result.rows[0].passenger_id}`).emit('assistance:accepted', { assistId: rideId, mechanicId: driverId });
+          io.to(`user_${result.rows[0].passenger_id}`).emit(EVENTS.ASSIST_ACCEPTED, { assistId: rideId, mechanicId: driverId });
         }
-        io.to('dispatch').emit('assistance:accepted', { assistId: rideId });
+        io.to('dispatch').emit(EVENTS.ASSIST_ACCEPTED, { assistId: rideId });
       }
       res.json({ ok: true });
     } else {

@@ -7,6 +7,8 @@ COPY backend/package.json .
 COPY backend/src ./src
 COPY backend/db ./db
 COPY backend/.env.example .env
+# Общий контракт сокет-протокола (используется бэкендом и фронтендом)
+COPY shared/ ./shared
 
 # Копируем PWA клиентов и админку для раздачи
 RUN mkdir -p passenger driver admin
