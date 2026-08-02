@@ -1,7 +1,14 @@
 import Chart from 'chart.js/auto';
 
-const serverUrl = localStorage.getItem('yanpro_server') || 'http://localhost:3002';
-const token = localStorage.getItem('yanpro_token');
+// Сервер и токен — как в основном PWA водителя; поддержка старых ключей
+// (yanpro_server/yanpro_token) для обратной совместимости.
+const serverUrl =
+  localStorage.getItem('yanpro_driver_server_url') ||
+  localStorage.getItem('yanpro_server') ||
+  window.location.origin;
+const token =
+  localStorage.getItem('yanpro_driver_token') ||
+  localStorage.getItem('yanpro_token');
 
 async function loadStats() {
   try {

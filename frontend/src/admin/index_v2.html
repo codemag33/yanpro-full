@@ -177,7 +177,7 @@ tr:hover{background:#1A1A1A}
 <script>
 'use strict';
 const state = {
-  serverUrl: localStorage.getItem('yanpro_server') || 'http://localhost:3002',
+  serverUrl: localStorage.getItem('yanpro_server') || window.location.origin,
   token: localStorage.getItem('yanpro_token'),
   user: JSON.parse(localStorage.getItem('yanpro_user') || '{}')
 };
