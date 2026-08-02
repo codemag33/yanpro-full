@@ -24,6 +24,9 @@ const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3002')
   .split(',').map((s) => s.trim()).filter(Boolean);
 
 const app = express();
+// Приложение стоит за nginx: доверяем первому прокси-хопу, чтобы
+// express-rate-limit и CORS корректно видели реальный IP клиента.
+app.set('trust proxy', 1);
 app.use(cors({ origin: allowedOrigins, methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use(express.json());
 
