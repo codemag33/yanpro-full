@@ -102,15 +102,10 @@ function setupSockets(io) {
       if (typeof data?.lat !== 'number' || typeof data?.lon !== 'number') return;
 
       if (role === 'driver' || role === 'mechanic') {
-        // Используем сохранённый статус, а не хардкодим 'online':
-        // иначе офлайн-водитель (или отключившийся от гео) снова появлялся
-        // в поиске при первом же location:update.
+        // В гео-набор пишем всегда (точка для карты), но в рассылку заявок
+        // попадают только status=online — фильтрует findNearby().
         const status = await geo.getStatus(role, userId);
-        if (status === 'online') {
-          await geo.setLocation(role, userId, data.lon, data.lat, { socketId: socket.id, name });
-        } else {
-          await geo.setLocation(role, userId, data.lon, data.lat, { socketId: socket.id, name });
-        }
+        await geo.setLocation(role, userId, data.lon, data.lat, { socketId: socket.id, name });
         // Шлём координаты только в комнату конкретной поездки, а не всем подряд.
         if (data.rideId) socket.to(rideRoom(data.rideId)).emit(EVENTS.RIDE_DRIVER_LOCATION, { lat: data.lat, lon: data.lon });
         if (data.assistId) socket.to(assistRoom(data.assistId)).emit(EVENTS.ASSIST_DRIVER_LOCATION, { lat: data.lat, lon: data.lon });
@@ -184,10 +179,12 @@ function setupSockets(io) {
     socket.on(EVENTS.DRIVER_STATUS, async (data) => {
       if (role !== 'driver' && role !== 'mechanic') return;
       const status = data?.status === 'online' ? 'online' : 'offline';
+      // Статус пишется ПЕРСИСТЕНТНО в обоих случаях: иначе после выключения
+      // онлайн статус навсегда оставался 'online', и офлайн-водитель,
+      // приславший location:update, снова попадал в гео-поиск и получал заявки.
+      await geo.setStatus(role, userId, status);
       if (status === 'offline') {
         await geo.removeDriver(role, userId);
-      } else {
-        await geo.setStatus(role, userId, 'online');
       }
       // Синхронизируем статус в PostgreSQL для админ-панели
       try {

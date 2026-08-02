@@ -11,9 +11,10 @@
     "migrate:v2.3": "psql \"$DATABASE_URL\" -f db/schema_v2.3.sql",
     "migrate:v2.4": "psql \"$DATABASE_URL\" -f db/schema_v2.4.sql",
     "create-admin": "node db/seed.js",
-    "test:e2e": "node test/e2e-chat.js && node test/e2e-reactivate.js",
+    "test:e2e": "node test/e2e-chat.js && node test/e2e-reactivate.js && node test/e2e-connect.js",
     "test:e2e:chat": "node test/e2e-chat.js",
-    "test:e2e:reactivate": "node test/e2e-reactivate.js"
+    "test:e2e:reactivate": "node test/e2e-reactivate.js",
+    "test:e2e:connect": "node test/e2e-connect.js"
   },
   "devDependencies": {
     "socket.io-client": "^4.7.5"
