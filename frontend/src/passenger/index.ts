@@ -428,8 +428,14 @@ document.getElementById('btnMenu').onclick = () => {
   document.getElementById('menuOverlay').classList.remove('hidden');
   document.getElementById('menuCard').classList.remove('hidden');
 };
-document.getElementById('menuLogout').onclick = () => {
+function closeMenu() {
   document.getElementById('menuOverlay').classList.add('hidden');
   document.getElementById('menuCard').classList.add('hidden');
+}
+document.getElementById('menuOverlay').onclick = closeMenu;
+document.getElementById('menuClose').onclick = closeMenu;
+document.getElementById('menuCloseBtn').onclick = closeMenu;
+document.getElementById('menuLogout').onclick = () => {
+  closeMenu();
   if (confirm('Выйти из аккаунта?')) logout();
 };
