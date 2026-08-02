@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Yan.Pro — Пассажир</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0F9D58">
+<meta name="theme-color" content="#1A1A1A">
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
@@ -31,7 +31,7 @@
     </div>
     <div class="authError" id="authError"></div>
   </div>
-  <button class="linkBtn" id="btnServerSettings" style="color:#DFF5E8; margin-top:16px;">⚙ Адрес сервера</button>
+  <button class="linkBtn" id="btnServerSettings" style="color:var(--yellow); margin-top:16px;">⚙ Адрес сервера</button>
 </div>
 
 <!-- ═══════════════ КАРТА / ОСНОВНОЕ ПРИЛОЖЕНИЕ ═══════════════ -->
@@ -51,8 +51,8 @@
 <!-- ═══════════════ МЕНЮ ═══════════════ -->
 <div id="menuOverlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:40;"></div>
 <div id="menuCard" class="hidden" style="position:fixed;bottom:0;left:0;right:0;background:var(--card);border-radius:20px 20px 0 0;padding:16px 16px calc(16px+env(safe-area-inset-bottom));z-index:41;box-shadow:var(--shadow);">
-  <div style="width:36px;height:4px;background:#DDD;border-radius:2px;margin:0 auto 14px;cursor:pointer;" id="menuClose"></div>
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:0 0 14px;border-bottom:1px solid #F0F0F0;">
+  <div style="width:36px;height:4px;background:#3A3A3A;border-radius:2px;margin:0 auto 14px;cursor:pointer;" id="menuClose"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:0 0 14px;border-bottom:1px solid #333;">
     <div id="menuUserInfo" style="font-size:15px;font-weight:600;"></div>
     <button id="menuCloseBtn" style="background:none;border:none;font-size:22px;color:var(--text);cursor:pointer;padding:0;">✕</button>
   </div>
@@ -64,7 +64,7 @@
   <div id="chatHeader">
     <button class="backBtn" id="chatBack">←</button>
     <div class="driverInfo"><div class="name" id="chatPeerName">Собеседник</div></div>
-    <button id="chatCloseBtn" style="background:none;border:none;font-size:22px;color:var(--text);cursor:pointer;padding:4px;margin-left:auto;">✕</button>
+    <button id="chatCloseBtn">✕</button>
   </div>
   <div id="chatMessages"></div>
   <div id="chatInputRow">

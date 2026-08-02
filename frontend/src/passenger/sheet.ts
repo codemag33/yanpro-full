@@ -95,7 +95,7 @@ export function renderRideState(status: string, driverName?: string) {
       <div class="big priceOfferAmount" id="priceOfferAmount"></div>
       <div class="actionsRow">
         <button class="btnDanger" id="btnRejectPrice">Отклонить</button>
-        <button class="btnGreen" id="btnAcceptPrice">Принять</button>
+        <button class="btnYellow" id="btnAcceptPrice">Принять</button>
       </div>
     </div>
     <div class="driverRow">
@@ -103,7 +103,7 @@ export function renderRideState(status: string, driverName?: string) {
       <div class="driverInfo"><div class="name">${driverName || 'Водитель'}</div><div class="role">Водитель</div></div>
     </div>
     <div class="actionsRow">
-      <button class="btnGreen" id="btnOpenChat">💬 Чат</button>
+      <button class="btnYellow" id="btnOpenChat">💬 Чат</button>
       <button class="btnDanger" id="btnCancelRide">Отменить</button>
     </div>
   `;
@@ -147,7 +147,7 @@ export function renderAssistState(status: string, mechanicName?: string) {
       <div class="driverInfo"><div class="name">${mechanicName || 'Мастер'}</div><div class="role">Механик</div></div>
     </div>
     <div class="actionsRow">
-      <button class="btnGreen" id="btnOpenChat">💬 Чат</button>
+      <button class="btnYellow" id="btnOpenChat">💬 Чат</button>
       <button class="btnDanger" id="btnCancelAssist">Отменить</button>
     </div>
   `;
