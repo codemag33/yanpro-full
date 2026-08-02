@@ -69,9 +69,9 @@ function setupSockets(io) {
         // в поиске при первом же location:update.
         const status = await geo.getStatus(role, userId);
         if (status === 'online') {
-          await geo.setLocation(role, userId, data.lon, data.lat, { socketId: socket.id, name, status: 'online' });
+          await geo.setLocation(role, userId, data.lon, data.lat, { socketId: socket.id, name });
         } else {
-          await geo.setLocation(role, userId, data.lon, data.lat, { socketId: socket.id, name, status: 'offline' });
+          await geo.setLocation(role, userId, data.lon, data.lat, { socketId: socket.id, name });
         }
         // Шлём координаты только в комнату конкретной поездки, а не всем подряд.
         if (data.rideId) socket.to(rideRoom(data.rideId)).emit('ride:driver_location', { lat: data.lat, lon: data.lon });

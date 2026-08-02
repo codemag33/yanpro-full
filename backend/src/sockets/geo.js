@@ -11,10 +11,12 @@ const statusKey = (role, userId) => `driver_status:${role}:${userId}`;
 
 async function setLocation(role, userId, lon, lat, meta) {
   await redis.geoadd(geoKey(role), lon, lat, userId);
+  // ВАЖНО: поле status НЕ трогаем — его владелец только setStatus().
+  // Иначе гонка: location:update, пришедший до driver:status online, затирал
+  // актуальный статус и водитель пропадал из гео-поиска.
   await redis.hset(metaKey(role, userId), {
     socketId: meta.socketId,
     name: meta.name,
-    status: meta.status || 'online',
     updatedAt: Date.now(),
   });
   await redis.expire(metaKey(role, userId), 60 * 10); // авто-очистка "мёртвых" записей
