@@ -395,6 +395,7 @@ export function openChat() {
   if (state.chatContext) state.socket?.emit(EVENTS.CHAT_HISTORY, state.chatContext);
 }
 document.getElementById('chatBack').onclick = () => document.getElementById('chatOverlay').classList.add('hidden');
+document.getElementById('chatCloseBtn').onclick = () => document.getElementById('chatOverlay').classList.add('hidden');
 document.getElementById('chatSend').onclick = sendChat;
 document.getElementById('chatInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendChat();
