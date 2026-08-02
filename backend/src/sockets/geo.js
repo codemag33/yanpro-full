@@ -51,8 +51,15 @@ async function findNearby(role, lon, lat, radiusKm = 15, count = 20) {
   const out = [];
   for (const [userId, [rlon, rlat]] of results) {
     const meta = await redis.hgetall(metaKey(role, userId));
-    if (meta.status === 'online') {
-      out.push({ userId, lon: parseFloat(rlon), lat: parseFloat(rlat), ...meta });
+    // meta.status может отсутствовать: setLocation() его не пишет, а клиент
+    // мог ещё не прислать driver:status (или он остался от прошлой сессии).
+    // Источник истины — персистентный driver_status.
+    let status = meta.status;
+    if (status === undefined) {
+      status = (await redis.get(statusKey(role, userId))) || 'offline';
+    }
+    if (status === 'online') {
+      out.push({ userId, lon: parseFloat(rlon), lat: parseFloat(rlat), ...meta, status });
     }
   }
   return out;

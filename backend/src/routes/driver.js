@@ -87,7 +87,7 @@ router.get('/skipped', requireAuth, requireRole('driver', 'mechanic'), async (re
               END as destination_address,
               CASE
                 WHEN sr.request_type = 'ride' THEN u.name
-                ELSE COALESCE(ar.passenger_name, 'Пассажир')
+                ELSE COALESCE(ua.name, 'Пассажир')
               END as passenger_name,
               CASE
                 WHEN sr.request_type = 'ride' THEN u.phone
@@ -101,6 +101,7 @@ router.get('/skipped', requireAuth, requireRole('driver', 'mechanic'), async (re
        LEFT JOIN rides r ON sr.request_type = 'ride' AND sr.request_id = r.id
        LEFT JOIN assistance_requests ar ON sr.request_type = 'assist' AND sr.request_id = ar.id
        LEFT JOIN users u ON sr.request_type = 'ride' AND r.passenger_id = u.id
+       LEFT JOIN users ua ON sr.request_type = 'assist' AND ar.passenger_id = ua.id
        WHERE sr.user_id = $1
        ORDER BY sr.skipped_at DESC
        LIMIT 50`,

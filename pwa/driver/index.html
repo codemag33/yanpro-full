@@ -184,6 +184,10 @@
 <div id="menuOverlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:40;" onclick="this.classList.add('hidden')"></div>
 <div id="menuCard" class="hidden" style="position:fixed;bottom:0;left:0;right:0;background:var(--card);border-radius:20px 20px 0 0;padding:16px 16px calc(16px+env(safe-area-inset-bottom));z-index:41;box-shadow:var(--shadow);">
   <div style="width:36px;height:4px;background:#DDD;border-radius:2px;margin:0 auto 14px;"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+    <div style="font-size:16px;font-weight:700;">Меню</div>
+    <button id="menuClose" style="width:34px;height:34px;border-radius:50%;border:none;background:#F0F0F0;color:var(--text);font-size:16px;cursor:pointer;line-height:1;">✕</button>
+  </div>
   <a id="menuEarnings" href="earnings.html" style="display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid #F0F0F0;color:var(--text);text-decoration:none;font-size:15px;font-weight:600;">💰 Доходы и бонусы</a>
   <div id="menuLogout" style="display:flex;align-items:center;gap:12px;padding:14px 0;color:var(--danger);font-size:15px;font-weight:600;cursor:pointer;">🚪 Выйти</div>
 </div>
@@ -630,6 +634,10 @@ function connectSocket() {
   state.socket.on('connect', () => {
     if (!state.backgrounded) toast('Подключено к серверу');
     updateConn('online');
+    // Синхронизируем реальное состояние переключателя с сервером.
+    // Без этого после перезагрузки страницы сервер хранил устаревший статус
+    // online от прошлой сессии, а водитель не получал заказы.
+    state.socket.emit('driver:status', { status: state.isOnline ? 'online' : 'offline' });
     state.socket.emit('pending:list');
   });
   state.socket.on('disconnect', () => {
@@ -1022,6 +1030,10 @@ function logout() {
 document.getElementById('btnMenu').onclick = () => {
   document.getElementById('menuOverlay').classList.remove('hidden');
   document.getElementById('menuCard').classList.remove('hidden');
+};
+document.getElementById('menuClose').onclick = () => {
+  document.getElementById('menuOverlay').classList.add('hidden');
+  document.getElementById('menuCard').classList.add('hidden');
 };
 document.getElementById('menuLogout').onclick = () => {
   document.getElementById('menuOverlay').classList.add('hidden');
