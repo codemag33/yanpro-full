@@ -21,6 +21,8 @@ button{font-family:inherit; border:none; cursor:pointer;}
 .primaryBtn:active{background:var(--yellow-dark);}
 .primaryBtn:disabled{opacity:.4;}
 .linkBtn{background:none; color:var(--yellow); font-size:14px; width:100%; padding:10px; margin-top:6px;}
+.downloadBtn{display:block; width:100%; text-align:center; padding:14px; margin-top:16px; border:1px solid #3A3A3A; border-radius:12px; background:var(--card2); color:var(--yellow); font-size:15px; font-weight:700; text-decoration:none;}
+.downloadBtn:active{background:var(--yellow); color:#111;}
 .authError{color:var(--danger); font-size:13px; margin:8px 0 0; min-height:16px;}
 .roleToggle{display:flex; gap:8px; margin-bottom:12px;}
 .roleOpt{flex:1; padding:10px; text-align:center; border-radius:10px; background:var(--card2); color:var(--muted); font-size:14px; font-weight:600; border:1px solid #3A3A3A;}
