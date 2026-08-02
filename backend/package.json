@@ -10,7 +10,13 @@
     "migrate:v2.2": "psql \"$DATABASE_URL\" -f db/schema_v2.2.sql",
     "migrate:v2.3": "psql \"$DATABASE_URL\" -f db/schema_v2.3.sql",
     "migrate:v2.4": "psql \"$DATABASE_URL\" -f db/schema_v2.4.sql",
-    "create-admin": "node db/seed.js"
+    "create-admin": "node db/seed.js",
+    "test:e2e": "node test/e2e-chat.js && node test/e2e-reactivate.js",
+    "test:e2e:chat": "node test/e2e-chat.js",
+    "test:e2e:reactivate": "node test/e2e-reactivate.js"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.7.5"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",

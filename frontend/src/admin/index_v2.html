@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yan.Pro — Admin v2.1</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3/dist/chart.min.js"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+:root{--d:#0F9D58;--bg:#0F0F0F;--card:#1A1A1A;--text:#E0E0E0;--muted:#888;--danger:#E24C4B;--s:0 4px 16px rgba(0,0,0,.5)}
+*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%;font:14px -apple-system,Roboto,sans-serif;background:var(--bg);color:var(--text)}
+a{color:var(--d);text-decoration:none}
+#app{display:flex;height:100vh}
+#sidebar{width:250px;background:var(--card);padding:20px;border-right:1px solid #333;overflow-y:auto}
+.sidebar-title{font-size:20px;font-weight:700;color:var(--d);margin-bottom:20px}
+.nav-item{padding:12px 16px;margin-bottom:8px;background:transparent;border:none;cursor:pointer;color:var(--text);border-radius:8px;width:100%;text-align:left;transition:all .2s}
+.nav-item:hover{background:#FFD700;color:#000}
+.nav-item.active{background:var(--d);color:#fff}
+#content{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#topbar{background:var(--card);border-bottom:1px solid #333;padding:16px 24px;display:flex;justify-content:space-between;align-items:center}
+#main{flex:1;overflow-y:auto;padding:24px}
+.section{display:none}
+.section.active{display:block}
+.card{background:var(--card);border-radius:12px;padding:20px;margin-bottom:20px;box-shadow:var(--s);border:1px solid #333}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-bottom:20px}
+.stat-card{background:var(--card);padding:20px;border-radius:12px;border:1px solid #333;text-align:center}
+.stat-value{font-size:28px;font-weight:700;color:var(--d);margin-bottom:8px}
+.stat-label{font-size:12px;color:var(--muted);text-transform:uppercase}
+button{font-family:inherit;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px;font-weight:600}
+.btn-primary{background:var(--d);color:#fff}
+.btn-primary:hover{opacity:.9}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-gray{background:#333;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin-top:12px}
+th{background:#222;padding:12px;text-align:left;font-weight:700;border-bottom:1px solid #333}
+td{padding:12px;border-bottom:1px solid #222}
+tr:hover{background:#1A1A1A}
+.rating{color:#FFD700;font-weight:700}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;text-transform:uppercase}
+.form-group input, .form-group select{width:100%;padding:10px 12px;background:#222;border:1px solid #333;border-radius:8px;color:var(--text);font-size:14px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:1000}
+.modal.show{display:flex}
+.modal-content{background:var(--card);border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:90vh;overflow-y:auto;border:1px solid #333}
+.modal-title{font-size:18px;font-weight:700;margin-bottom:16px}
+.success{color:#34C759}
+.error{color:var(--danger)}
+.toast{position:fixed;bottom:20px;right:20px;background:#000;color:#fff;padding:14px 20px;border-radius:8px;z-index:2000;opacity:0;transition:opacity .2s}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="sidebar">
+    <div class="sidebar-title">☰ Yan.Pro Admin</div>
+    <button class="nav-item active" data-tab="overview">📊 Обзор</button>
+    <button class="nav-item" data-tab="drivers">🚗 Водители</button>
+    <button class="nav-item" data-tab="ratings">⭐ Рейтинги</button>
+    <button class="nav-item" data-tab="settings">⚙️ Настройки</button>
+    <button class="nav-item" data-tab="blocked">🚫 Заблокированы</button>
+    <button class="nav-item" data-tab="logs">📋 Логи</button>
+    <button class="nav-item" data-tab="export">📥 Экспорт</button>
+  </div>
+
+  <div id="content">
+    <div id="topbar">
+      <h1>Yan.Pro Admin v2.1</h1>
+      <button class="btn-gray" id="btn-logout">Выход</button>
+    </div>
+
+    <div id="main">
+      <!-- OVERVIEW -->
+      <div id="overview" class="section active">
+        <h2>📊 Обзор</h2>
+        <div class="grid" id="stats-grid"></div>
+        <div class="card">
+          <h3>📈 Поездки за 7 дней</h3>
+          <canvas id="chart-rides"></canvas>
+        </div>
+        <div class="card">
+          <h3>💰 Заработок по дням</h3>
+          <canvas id="chart-earnings"></canvas>
+        </div>
+      </div>
+
+      <!-- DRIVERS -->
+      <div id="drivers" class="section">
+        <h2>🚗 Водители</h2>
+        <table>
+          <thead>
+            <tr><th>Имя</th><th>Рейтинг</th><th>Поездок</th><th>Заработок</th><th>Статус</th><th>Действия</th></tr>
+          </thead>
+          <tbody id="drivers-table"></tbody>
+        </table>
+      </div>
+
+      <!-- RATINGS -->
+      <div id="ratings" class="section">
+        <h2>⭐ Рейтинги</h2>
+        <div class="form-group">
+          <label>Фильтр по рейтингу (от и выше):</label>
+          <input type="number" id="filter-rating" value="4" step="0.1" min="1" max="5">
+          <button class="btn-primary" onclick="filterRatings()" style="margin-top:8px">Применить</button>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Водитель</th><th>Рейтинг</th><th>Отзывов</th><th>Последний отзыв</th><th>Действия</th></tr>
+          </thead>
+          <tbody id="ratings-table"></tbody>
+        </table>
+      </div>
+
+      <!-- SETTINGS -->
+      <div id="settings" class="section">
+        <h2>⚙️ Настройки платформы</h2>
+        <div id="settings-form"></div>
+        <button class="btn-primary" onclick="saveSettings()">Сохранить</button>
+      </div>
+
+      <!-- BLOCKED USERS -->
+      <div id="blocked" class="section">
+        <h2>🚫 Заблокированные пользователи</h2>
+        <div class="card" style="margin-bottom:20px">
+          <h3>Заблокировать пользователя</h3>
+          <div class="form-group">
+            <label>ID пользователя:</label>
+            <input type="text" id="block-user-id" placeholder="UUID">
+          </div>
+          <div class="form-group">
+            <label>Причина:</label>
+            <input type="text" id="block-reason" placeholder="Причина блокировки">
+          </div>
+          <button class="btn-danger" onclick="blockUser()">Заблокировать</button>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Пользователь</th><th>Роль</th><th>Причина</th><th>Дата блокировки</th><th>Действия</th></tr>
+          </thead>
+          <tbody id="blocked-table"></tbody>
+        </table>
+      </div>
+
+      <!-- LOGS -->
+      <div id="logs" class="section">
+        <h2>📋 Логи действий администратора</h2>
+        <table>
+          <thead>
+            <tr><th>Админ</th><th>Действие</th><th>Тип</th><th>Дата</th></tr>
+          </thead>
+          <tbody id="logs-table"></tbody>
+        </table>
+      </div>
+
+      <!-- EXPORT -->
+      <div id="export" class="section">
+        <h2>📥 Экспорт данных</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>Экспорт поездок</h3>
+            <p style="color:var(--muted);margin:12px 0">Скачать CSV со всеми поездками</p>
+            <button class="btn-primary" onclick="exportRides()">Скачать CSV</button>
+          </div>
+          <div class="card">
+            <h3>Экспорт водителей</h3>
+            <p style="color:var(--muted);margin:12px 0">Скачать CSV со статистикой водителей</p>
+            <button class="btn-primary" onclick="exportDrivers()">Скачать CSV</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+const state = {
+  serverUrl: localStorage.getItem('yanpro_server') || 'http://localhost:3002',
+  token: localStorage.getItem('yanpro_token'),
+  user: JSON.parse(localStorage.getItem('yanpro_user') || '{}')
+};
+
+// ════════════════════ НАВИГАЦИЯ ════════════════════
+document.querySelectorAll('.nav-item').forEach(btn => {
+  btn.onclick = (e) => {
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    
+    const tab = e.target.dataset.tab;
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.getElementById(tab).classList.add('active');
+    
+    if (tab === 'overview') loadOverview();
+    if (tab === 'drivers') loadDrivers();
+    if (tab === 'ratings') loadRatings();
+    if (tab === 'settings') loadSettings();
+    if (tab === 'blocked') loadBlockedUsers();
+    if (tab === 'logs') loadLogs();
+  };
+});
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ════════════════════ OVERVIEW ════════════════════
+async function loadOverview() {
+  try {
+    const res = await fetch(state.serverUrl + '/api/admin/stats', {
+      headers: { 'Authorization': 'Bearer ' + state.token }
+    });
+    const data = await res.json();
+
+    document.getElementById('stats-grid').innerHTML = `
+      <div class="stat-card">
+        <div class="stat-value">${data.activeUsers}</div>
+        <div class="stat-label">Активных пользователей</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${data.ridesToday}</div>
+        <div class="stat-label">Поездок сегодня</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">₽${data.earningsToday}</div>
+        <div class="stat-label">Заработок</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${data.driversOnline}</div>
+        <div class="stat-label">Водителей онлайн</div>
+      </div>
+    `;
+  } catch (e) {
+    toast('Ошибка загрузки статистики');
+  }
+}
+
+// ════════════════════ ВОДИТЕЛИ ════════════════════
+async function loadDrivers() {
+  try {
+    const res = await fetch(state.serverUrl + '/api/admin/driver-stats', {
+      headers: { 'Authorization': 'Bearer ' + state.token }
+    });
+    const data = await res.json();
+
+    document.getElementById('drivers-table').innerHTML = data.map(d => `
+      <tr>
+        <td>${d.name}</td>
+        <td class="rating">⭐ ${d.rating || 'Нет'}</td>
+        <td>${d.completed_rides || 0}</td>
+        <td>₽${d.total_earnings || 0}</td>
+        <td>${d.status}</td>
+        <td><button class="btn-gray" onclick="alert('Профиль водителя')">Профиль</button></td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    toast('Ошибка загрузки водителей');
+  }
+}
+
+// ════════════════════ РЕЙТИНГИ ════════════════════
+async function loadRatings() {
+  try {
+    const res = await fetch(state.serverUrl + '/api/admin/drivers-below-rating?minRating=4', {
+      headers: { 'Authorization': 'Bearer ' + state.token }
+    });
+    const data = await res.json();
+
+    document.getElementById('ratings-table').innerHTML = data.map(d => `
+      <tr>
+        <td>${d.name}</td>
+        <td class="rating">⭐ ${d.rating || 'Нет'}</td>
+        <td>${d.reviews_count || 0}</td>
+        <td>${d.last_ride ? new Date(d.last_ride).toLocaleDateString('ru-RU') : '-'}</td>
+        <td><button class="btn-gray" onclick="alert('Отзывы водителя')">Отзывы</button></td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    toast('Ошибка загрузки рейтингов');
+  }
+}
+
+function filterRatings() {
+  const rating = parseFloat(document.getElementById('filter-rating').value);
+  loadRatings();
+}
+
+// ════════════════════ НАСТРОЙКИ ════════════════════
+async function loadSettings() {
+  try {
+    const res = await fetch(state.serverUrl + '/api/admin/settings', {
+      headers: { 'Authorization': 'Bearer ' + state.token }
+    });
+    const data = await res.json();
+
+    document.getElementById('settings-form').innerHTML = Object.entries(data).map(([key, val]) => `
+      <div class="form-group">
+        <label>${key} ${val.type === 'percent' ? '(%)' : val.type === 'number' ? '(₽)' : ''}</label>
+        <input type="text" data-setting="${key}" value="${val.value}">
+      </div>
+    `).join('');
+  } catch (e) {
+    toast('Ошибка загрузки настроек');
+  }
+}
+
+async function saveSettings() {
+  try {
+    const inputs = document.querySelectorAll('[data-setting]');
+    for (const input of inputs) {
+      const name = input.dataset.setting;
+      const value = input.value;
+      
+      await fetch(state.serverUrl + '/api/admin/settings/' + name, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + state.token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ value })
+      });
+    }
+    toast('✅ Настройки сохранены');
+  } catch (e) {
+    toast('❌ Ошибка сохранения');
+  }
+}
+
+// ════════════════════ БЛОКИРОВКИ ════════════════════
+async function loadBlockedUsers() {
+  try {
+    const res = await fetch(state.serverUrl + '/api/admin/blocked-users', {
+      headers: { 'Authorization': 'Bearer ' + state.token }
+    });
+    const data = await res.json();
+
+    document.getElementById('blocked-table').innerHTML = data.map(u => `
+      <tr>
+        <td>${u.name}</td>
+        <td>${u.role}</td>
+        <td>${u.reason}</td>
+        <td>${new Date(u.created_at).toLocaleDateString('ru-RU')}</td>
+        <td><button class="btn-primary" onclick="unblockUser('${u.user_id}')">Разблокировать</button></td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    toast('Ошибка загрузки заблокированных');
+  }
+}
+
+async function blockUser() {
+  const userId = document.getElementById('block-user-id').value;
+  const reason = document.getElementById('block-reason').value;
+  
+  if (!userId || !reason) return toast('Заполните все поля');
+  
+  try {
+    await fetch(state.serverUrl + '/api/admin/block', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + state.token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ userId, reason })
+    });
+    
+    toast('✅ Пользователь заблокирован');
+    document.getElementById('block-user-id').value = '';
+    document.getElementById('block-reason').value = '';
+    loadBlockedUsers();
+  } catch (e) {
+    toast('❌ Ошибка блокировки');
+  }
+}
+
+async function unblockUser(userId) {
+  try {
+    await fetch(state.serverUrl + '/api/admin/unblock/' + userId, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + state.token }
+    });
+    toast('✅ Пользователь разблокирован');
+    loadBlockedUsers();
+  } catch (e) {
+    toast('❌ Ошибка разблокировки');
+  }
+}
+
+// ════════════════════ ЛОГИ ════════════════════
+async function loadLogs() {
+  try {
+    const res = await fetch(state.serverUrl + '/api/admin/logs', {
+      headers: { 'Authorization': 'Bearer ' + state.token }
+    });
+    const data = await res.json();
+
+    document.getElementById('logs-table').innerHTML = data.slice(0, 50).map(log => `
+      <tr>
+        <td>${log.admin_name}</td>
+        <td>${log.action}</td>
+        <td>${log.target_type}</td>
+        <td>${new Date(log.created_at).toLocaleString('ru-RU')}</td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    toast('Ошибка загрузки логов');
+  }
+}
+
+// ════════════════════ ЭКСПОРТ ════════════════════
+function exportRides() {
+  window.open(state.serverUrl + '/api/admin/export/rides?token=' + state.token, '_blank');
+}
+
+function exportDrivers() {
+  window.open(state.serverUrl + '/api/admin/export/drivers?token=' + state.token, '_blank');
+}
+
+// ════════════════════ LOGOUT ════════════════════
+document.getElementById('btn-logout').onclick = () => {
+  localStorage.clear();
+  window.location.href = '/admin';
+};
+
+// Загружаем при открытии
+loadOverview();
+</script>
+</body>
+</html>

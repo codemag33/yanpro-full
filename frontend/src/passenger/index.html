@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Yan.Pro — Пассажир</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0F9D58">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<!-- ═══════════════ ЭКРАН ВХОДА ═══════════════ -->
+<div id="authScreen">
+  <h1>Yan.Pro</h1>
+  <p class="sub">Такси и помощь на дороге</p>
+  <div class="authCard">
+    <div id="loginForm">
+      <div class="field"><label>Логин</label><input id="loginLogin" autocomplete="username"></div>
+      <div class="field"><label>Пароль</label><input id="loginPass" type="password" autocomplete="current-password"></div>
+      <button class="primaryBtn" id="btnLogin">Войти</button>
+      <button class="linkBtn" id="toRegister">Нет аккаунта? Зарегистрироваться</button>
+    </div>
+    <div id="registerForm" class="hidden">
+      <div class="field"><label>Имя</label><input id="regName"></div>
+      <div class="field"><label>Логин</label><input id="regLogin" autocomplete="username"></div>
+      <div class="field"><label>Телефон</label><input id="regPhone" type="tel" placeholder="+7..."></div>
+      <div class="field"><label>Пароль (мин. 6 символов)</label><input id="regPass" type="password" autocomplete="new-password"></div>
+      <button class="primaryBtn" id="btnRegister">Зарегистрироваться</button>
+      <button class="linkBtn" id="toLogin">Уже есть аккаунт? Войти</button>
+    </div>
+    <div class="authError" id="authError"></div>
+  </div>
+  <button class="linkBtn" id="btnServerSettings" style="color:#DFF5E8; margin-top:16px;">⚙ Адрес сервера</button>
+</div>
+
+<!-- ═══════════════ КАРТА / ОСНОВНОЕ ПРИЛОЖЕНИЕ ═══════════════ -->
+<div id="map"></div>
+
+<div id="topBar" class="hidden">
+  <button class="roundBtn" id="btnMenu">☰</button>
+  <input id="searchInput" placeholder="Куда едем?">
+  <button class="roundBtn" id="btnLocate">◎</button>
+</div>
+<div id="suggestions" class="hidden"></div>
+
+<div id="sheet" class="hidden"></div>
+<div id="connBar" class="hidden" style="position:fixed;top:60px;left:12px;right:12px;padding:8px 14px;border-radius:10px;font-size:12px;font-weight:600;z-index:25;text-align:center;"></div>
+<div id="toast"></div>
+
+<!-- ═══════════════ МЕНЮ ═══════════════ -->
+<div id="menuOverlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:40;" onclick="this.classList.add('hidden')"></div>
+<div id="menuCard" class="hidden" style="position:fixed;bottom:0;left:0;right:0;background:var(--card);border-radius:20px 20px 0 0;padding:16px 16px calc(16px+env(safe-area-inset-bottom));z-index:41;box-shadow:var(--shadow);">
+  <div style="width:36px;height:4px;background:#DDD;border-radius:2px;margin:0 auto 14px;"></div>
+  <div id="menuUserInfo" style="padding:0 0 14px;border-bottom:1px solid #F0F0F0;font-size:15px;font-weight:600;"></div>
+  <div id="menuLogout" style="display:flex;align-items:center;gap:12px;padding:14px 0;color:var(--danger);font-size:15px;font-weight:600;cursor:pointer;">🚪 Выйти</div>
+</div>
+
+<!-- ═══════════════ ЧАТ ═══════════════ -->
+<div id="chatOverlay" class="hidden">
+  <div id="chatHeader">
+    <button class="backBtn" id="chatBack">←</button>
+    <div class="driverInfo"><div class="name" id="chatPeerName">Собеседник</div></div>
+  </div>
+  <div id="chatMessages"></div>
+  <div id="chatInputRow">
+    <input id="chatInput" placeholder="Сообщение...">
+    <button id="chatSend">➤</button>
+  </div>
+</div>
+
+<script type="module" src="./index.ts"></script>
+</body>
+</html>

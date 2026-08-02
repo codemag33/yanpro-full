@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Диспетчерская — Yan.Pro</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1a1a;color:#fff;height:100vh;overflow:hidden;display:flex;flex-direction:column;}
+.header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:#111;border-bottom:1px solid #333;flex-shrink:0;}
+.header h1{font-size:18px;flex:1;}
+.header .stat{font-size:12px;padding:4px 10px;border-radius:8px;font-weight:600;}
+.stat-search{background:#E65100;color:#fff;}
+.stat-active{background:#1B5E20;color:#fff;}
+.stat-online{background:#0D47A1;color:#fff;}
+.main{display:flex;flex:1;overflow:hidden;}
+.mapWrap{flex:1;position:relative;}
+#map{width:100%;height:100%;}
+.sidebar{width:380px;background:#111;border-left:1px solid #333;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+.tabs{display:flex;border-bottom:1px solid #333;flex-shrink:0;}
+.tab{flex:1;padding:10px;text-align:center;cursor:pointer;font-size:13px;font-weight:600;color:#888;border-bottom:2px solid transparent;}
+.tab.active{color:#FFD600;border-bottom-color:#FFD600;}
+.panel{flex:1;overflow-y:auto;padding:12px;}
+.panel.hidden{display:none;}
+.card{background:#222;border-radius:12px;padding:12px;margin-bottom:8px;cursor:pointer;transition:background .15s;}
+.card:hover{background:#333;}
+.card.selected{border:2px solid #FFD600;}
+.card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.card-type{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;}
+.type-ride{background:#FFD600;color:#111;}
+.type-assist{background:#3DCC6E;color:#111;}
+.card-status{font-size:11px;font-weight:600;}
+.status-searching{color:#FF9800;}
+.status-waiting{color:#FF9800;}
+.status-accepted{color:#4CAF50;}
+.status-in_progress{color:#2196F3;}
+.status-completed{color:#888;}
+.status-cancelled{color:#f44336;}
+.card-name{font-size:14px;font-weight:600;}
+.card-addr{font-size:12px;color:#aaa;margin-top:4px;}
+.card-phone{font-size:12px;color:#FFD600;margin-top:2px;}
+.card-actions{display:flex;gap:6px;margin-top:8px;}
+.card-actions button{flex:1;padding:8px;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;}
+.btn-assign{background:#FFD600;color:#111;}
+.btn-assign:disabled{background:#555;color:#888;cursor:not-allowed;}
+.btn-cancel{background:#444;color:#ddd;}
+.driver-card{display:flex;align-items:center;gap:10px;background:#222;border-radius:12px;padding:10px 12px;margin-bottom:8px;}
+.driver-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.dot-online{background:#4CAF50;}
+.dot-busy{background:#FF9800;}
+.driver-info{flex:1;}
+.driver-name{font-size:14px;font-weight:600;}
+.driver-role{font-size:11px;color:#888;}
+.empty{color:#666;text-align:center;padding:30px;font-size:13px;}
+.login-screen{display:flex;align-items:center;justify-content:center;height:100vh;}
+.login-box{background:#222;border-radius:16px;padding:32px;width:340px;text-align:center;}
+.login-box h2{margin-bottom:20px;color:#FFD600;}
+.login-box input{width:100%;padding:12px;border-radius:10px;border:1px solid #444;background:#333;color:#fff;font-size:15px;margin-bottom:12px;}
+.login-box button{width:100%;padding:12px;border:none;border-radius:10px;background:#FFD600;color:#111;font-size:15px;font-weight:700;cursor:pointer;}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;}
+.toast.show{opacity:1;}
+</style>
+</head>
+<body>
+
+<!-- ═══ LOGIN ═══ -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-box">
+    <h2>Диспетчерская</h2>
+    <input id="loginInput" type="text" placeholder="Логин" value="admin">
+    <input id="passInput" type="password" placeholder="Пароль">
+    <button id="loginBtn">Войти</button>
+    <div id="loginError" style="color:#f44336;margin-top:12px;font-size:13px;"></div>
+  </div>
+</div>
+
+<!-- ═══ DISPATCH ═══ -->
+<div id="app" style="display:none;height:100vh;display:none;flex-direction:column;">
+  <div class="header">
+    <h1>Диспетчерская</h1>
+    <div class="stat stat-search" id="statSearch">0 ищут</div>
+    <div class="stat stat-active" id="statActive">0 в работе</div>
+    <div class="stat stat-online" id="statOnline">0 онлайн</div>
+    <button id="btnRefresh" style="padding:6px 14px;border:1px solid #555;border-radius:8px;background:#333;color:#fff;cursor:pointer;font-size:12px;">🔄 Обновить</button>
+  </div>
+  <div class="main">
+    <div class="mapWrap">
+      <div id="map"></div>
+    </div>
+    <div class="sidebar">
+      <div class="tabs">
+        <div class="tab active" data-tab="rides">🚕 Заказы</div>
+        <div class="tab" data-tab="assists">🔧 Помощь</div>
+        <div class="tab" data-tab="drivers">👥 Водители</div>
+      </div>
+      <div class="panel" id="panelRides"></div>
+      <div class="panel hidden" id="panelAssists"></div>
+      <div class="panel hidden" id="panelDrivers"></div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<!-- ═══ Assign Modal ═══ -->
+<div id="assignModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:none;align-items:center;justify-content:center;">
+  <div style="background:#222;border-radius:16px;padding:24px;width:340px;max-height:60vh;overflow-y:auto;">
+    <h3 style="margin-bottom:16px;color:#FFD600;">Назначить водителя</h3>
+    <div id="assignDriverList"></div>
+    <button onclick="closeAssignModal()" style="width:100%;margin-top:12px;padding:10px;border:1px solid #555;border-radius:10px;background:#333;color:#fff;cursor:pointer;">Отмена</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const ORENBURG = [55.0988, 51.7727];
+let token = null;
+let map = null;
+let driverMarkers = {};
+let rideMarkers = {};
+let selectedId = null;
+
+/* ─── Login ────────────────────────────────────────────────── */
+document.getElementById('loginBtn').onclick = login;
+document.getElementById('passInput').onkeydown = (e) => { if (e.key === 'Enter') login(); };
+
+async function login() {
+  const login = document.getElementById('loginInput').value.trim();
+  const password = document.getElementById('passInput').value;
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login, password })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'login_failed');
+    if (data.user.role !== 'admin') throw new Error('Только для администраторов');
+    token = data.token;
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    initApp();
+  } catch (e) { errEl.textContent = e.message; }
+}
+
+/* ─── App ──────────────────────────────────────────────────── */
+function initApp() {
+  initMap();
+  initTabs();
+  setupSocket();
+  loadData();
+  document.getElementById('btnRefresh').onclick = loadData;
+}
+
+function initMap() {
+  map = new maplibregl.Map({
+    container: 'map', center: ORENBURG, zoom: 12,
+    style: { version: 3, sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap' } }, layers: [{ id: 'osm', type: 'raster', source: 'osm' }] }
+  });
+  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+}
+
+function initTabs() {
+  document.querySelectorAll('.tab').forEach(t => {
+    t.onclick = () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      document.getElementById('panelRides').classList.toggle('hidden', t.dataset.tab !== 'rides');
+      document.getElementById('panelAssists').classList.toggle('hidden', t.dataset.tab !== 'assists');
+      document.getElementById('panelDrivers').classList.toggle('hidden', t.dataset.tab !== 'drivers');
+    };
+  });
+}
+
+/* ─── Socket ───────────────────────────────────────────────── */
+function setupSocket() {
+  const s = io(window.location.origin, { auth: { token } });
+  s.on('connect', () => toast('Подключено'));
+  s.on('ride:created', () => loadData());
+  s.on('ride:accepted', () => loadData());
+  s.on('ride:started', () => loadData());
+  s.on('ride:finished', () => loadData());
+  s.on('ride:cancelled', () => loadData());
+  s.on('assistance:request_created', () => loadData());
+  s.on('assistance:accepted', () => loadData());
+  s.on('assistance:finished', () => loadData());
+  s.on('assistance:cancelled', () => loadData());
+  // Обновляем локации водителей в реальном времени
+  s.on('driver:location_update', (data) => updateDriverMarker(data));
+}
+
+/* ─── Load Data ────────────────────────────────────────────── */
+async function loadData() {
+  try {
+    const [activeRes, driversRes] = await Promise.all([
+      apiFetch('/api/dispatch/active'),
+      apiFetch('/api/dispatch/drivers'),
+    ]);
+    renderRides(activeRes.rides || []);
+    renderAssists(activeRes.assists || []);
+    renderDrivers(driversRes.drivers || []);
+    updateStats(activeRes.rides || [], activeRes.assists || [], driversRes.drivers || []);
+    updateMapMarkers(activeRes.rides || [], activeRes.assists || [], driversRes.drivers || []);
+  } catch (e) { toast('Ошибка загрузки: ' + e.message); }
+}
+
+async function apiFetch(path) {
+  const res = await fetch(path, { headers: { Authorization: 'Bearer ' + token } });
+  if (!res.ok) throw new Error('http_' + res.status);
+  return res.json();
+}
+
+/* ─── Stats ────────────────────────────────────────────────── */
+function updateStats(rides, assists, drivers) {
+  const searching = rides.filter(r => r.status === 'searching').length;
+  const waiting = assists.filter(a => a.status === 'waiting').length;
+  const active = rides.filter(r => r.status !== 'searching').length + assists.filter(a => a.status !== 'waiting').length;
+  document.getElementById('statSearch').textContent = (searching + waiting) + ' ищут';
+  document.getElementById('statActive').textContent = active + ' в работе';
+  document.getElementById('statOnline').textContent = drivers.length + ' онлайн';
+}
+
+/* ─── Render Rides ─────────────────────────────────────────── */
+function renderRides(rides) {
+  const panel = document.getElementById('panelRides');
+  if (!rides.length) { panel.innerHTML = '<div class="empty">Активных заказов нет</div>'; return; }
+  panel.innerHTML = '';
+  rides.forEach(r => {
+    const statusLabels = { searching: 'Ищет водителя', accepted: 'Принят', in_progress: 'В поездке' };
+    const div = document.createElement('div');
+    div.className = 'card' + (selectedId === r.id ? ' selected' : '');
+    div.innerHTML = `
+      <div class="card-top">
+        <span class="card-type type-ride">🚕 Заказ</span>
+        <span class="card-status status-${r.status}">${statusLabels[r.status] || r.status}</span>
+      </div>
+      <div class="card-name">${r.passenger_name || 'Пассажир'} ${r.passenger_phone ? '📞 ' + r.passenger_phone : ''}</div>
+      <div class="card-addr">📍 ${r.pickup_address || ''}</div>
+      <div class="card-addr">🏁 ${r.destination_address || ''}</div>
+      ${r.driver_name ? '<div class="card-addr">🚗 ' + r.driver_name + '</div>' : ''}
+      <div class="card-actions">
+        ${r.status === 'searching' ? `<button class="btn-assign" onclick="assignRide('${r.id}','ride')">Назначить</button>` : ''}
+        ${r.status !== 'in_progress' ? `<button class="btn-cancel" onclick="cancelRide('${r.id}','ride')">Отменить</button>` : ''}
+      </div>`;
+    div.onclick = (e) => { if (!e.target.closest('button')) focusMap(r.pickup_lat, r.pickup_lon); };
+    panel.appendChild(div);
+  });
+}
+
+/* ─── Render Assists ───────────────────────────────────────── */
+function renderAssists(assists) {
+  const panel = document.getElementById('panelAssists');
+  if (!assists.length) { panel.innerHTML = '<div class="empty">Активных заявок нет</div>'; return; }
+  panel.innerHTML = '';
+  const typeLabels = { battery: 'Не заводится', tire: 'Прокол', fuel: 'Нет топлива', lockout: 'Заблокирован', other: 'Другое' };
+  assists.forEach(a => {
+    const statusLabels = { waiting: 'Ищет мастера', accepted: 'Принята', in_progress: 'В работе' };
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.innerHTML = `
+      <div class="card-top">
+        <span class="card-type type-assist">🔧 Помощь</span>
+        <span class="card-status status-${a.status}">${statusLabels[a.status] || a.status}</span>
+      </div>
+      <div class="card-name">${a.passenger_name || 'Пассажир'} ${a.phone ? '📞 ' + a.phone : ''}</div>
+      <div class="card-addr">${a.car_make ? '🚗 ' + a.car_make : ''} ${a.breakdown_type ? '— ' + (typeLabels[a.breakdown_type] || a.breakdown_type) : ''}</div>
+      <div class="card-addr">📍 ${a.description || ''}</div>
+      ${a.mechanic_name ? '<div class="card-addr">🔧 ' + a.mechanic_name + '</div>' : ''}
+      <div class="card-actions">
+        ${a.status === 'waiting' ? `<button class="btn-assign" onclick="assignRide('${a.id}','assist')">Назначить</button>` : ''}
+        ${a.status !== 'in_progress' ? `<button class="btn-cancel" onclick="cancelRide('${a.id}','assist')">Отменить</button>` : ''}
+      </div>`;
+    div.onclick = (e) => { if (!e.target.closest('button')) focusMap(a.pickup_lat, a.pickup_lon); };
+    panel.appendChild(div);
+  });
+}
+
+/* ─── Render Drivers ───────────────────────────────────────── */
+function renderDrivers(drivers) {
+  const panel = document.getElementById('panelDrivers');
+  if (!drivers.length) { panel.innerHTML = '<div class="empty">Нет онлайн водителей</div>'; return; }
+  panel.innerHTML = '';
+  drivers.forEach(d => {
+    const div = document.createElement('div');
+    div.className = 'driver-card';
+    const roleLabel = d.role === 'driver' ? '🚕 Водитель' : '🔧 Механик';
+    div.innerHTML = `
+      <div class="driver-dot dot-online"></div>
+      <div class="driver-info">
+        <div class="driver-name">${d.name}</div>
+        <div class="driver-role">${roleLabel}</div>
+      </div>`;
+    div.onclick = () => focusMap(d.lat, d.lon);
+    panel.appendChild(div);
+  });
+}
+
+/* ─── Map Markers ──────────────────────────────────────────── */
+function updateMapMarkers(rides, assists, drivers) {
+  // Clear old markers
+  Object.values(driverMarkers).forEach(m => m.remove());
+  Object.values(rideMarkers).forEach(m => m.remove());
+  driverMarkers = {};
+  rideMarkers = {};
+
+  // Driver markers
+  drivers.forEach(d => {
+    const color = d.role === 'driver' ? '#4CAF50' : '#2196F3';
+    const label = d.role === 'driver' ? '🚕' : '🔧';
+    const el = document.createElement('div');
+    el.style.cssText = `width:32px;height:32px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);cursor:pointer;`;
+    el.textContent = label;
+    const m = new maplibregl.Marker(el).setLngLat([d.lon, d.lat]).setPopup(new maplibregl.Popup({offset:15}).setText(`${d.name} (${d.role})`)).addTo(map);
+    driverMarkers[d.userId] = m;
+  });
+
+  // Ride markers (searching only)
+  rides.filter(r => r.status === 'searching' && r.pickup_lat).forEach(r => {
+    const el = document.createElement('div');
+    el.style.cssText = 'width:28px;height:28px;border-radius:50%;background:#FFD600;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #111;box-shadow:0 2px 6px rgba(0,0,0,.4);cursor:pointer;';
+    el.textContent = '🚕';
+    const m = new maplibregl.Marker(el).setLngLat([r.pickup_lon, r.pickup_lat]).setPopup(new maplibregl.Popup({offset:15}).setText(`${r.passenger_name || 'Пассажир'} — ${r.pickup_address || ''}`)).addTo(map);
+    rideMarkers[r.id] = m;
+  });
+
+  // Assist markers (waiting only)
+  assists.filter(a => a.status === 'waiting' && a.pickup_lat).forEach(a => {
+    const el = document.createElement('div');
+    el.style.cssText = 'width:28px;height:28px;border-radius:50%;background:#3DCC6E;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #111;box-shadow:0 2px 6px rgba(0,0,0,.4);cursor:pointer;';
+    el.textContent = '🔧';
+    const m = new maplibregl.Marker(el).setLngLat([a.pickup_lon, a.pickup_lat]).setPopup(new maplibregl.Popup({offset:15}).setText(`${a.passenger_name || 'Пассажир'} — ${a.description || ''}`)).addTo(map);
+    rideMarkers[a.id] = m;
+  });
+}
+
+function updateDriverMarker(data) {
+  if (!data || !data.userId || !data.lat || !data.lon) return;
+  if (driverMarkers[data.userId]) {
+    driverMarkers[data.userId].setLngLat([data.lon, data.lat]);
+  }
+}
+
+function focusMap(lat, lon) {
+  if (lat && lon) map.flyTo({ center: [lon, lat], zoom: 15 });
+}
+
+/* ─── Actions ──────────────────────────────────────────────── */
+let pendingAssign = null;
+let onlineDriversCache = [];
+
+async function assignRide(rideId, type) {
+  pendingAssign = { rideId, type };
+  const list = document.getElementById('assignDriverList');
+  try {
+    const data = await apiFetch('/api/dispatch/drivers');
+    onlineDriversCache = data.drivers || [];
+  } catch { onlineDriversCache = []; }
+  list.innerHTML = '';
+  if (!onlineDriversCache.length) { list.innerHTML = '<div style="color:#888;text-align:center;">Нет онлайн водителей</div>'; }
+  onlineDriversCache.forEach(d => {
+    const btn = document.createElement('button');
+    btn.style.cssText = 'width:100%;padding:10px;margin-bottom:6px;border:1px solid #444;border-radius:10px;background:#333;color:#fff;cursor:pointer;text-align:left;font-size:13px;';
+    const roleLabel = d.role === 'driver' ? '🚕' : '🔧';
+    btn.textContent = `${roleLabel} ${d.name}`;
+    btn.onclick = () => doAssign(d.userId);
+    list.appendChild(btn);
+  });
+  document.getElementById('assignModal').style.display = 'flex';
+}
+function closeAssignModal() { document.getElementById('assignModal').style.display = 'none'; pendingAssign = null; }
+
+async function doAssign(driverId) {
+  if (!pendingAssign) return;
+  closeAssignModal();
+  try {
+    const res = await fetch('/api/dispatch/assign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ rideId: pendingAssign.rideId, driverId, type: pendingAssign.type })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    toast('Назначено');
+    loadData();
+  } catch (e) { toast('Ошибка: ' + e.message); }
+}
+
+async function cancelRide(rideId, type) {
+  if (!confirm('Отменить заявку?')) return;
+  try {
+    const res = await fetch('/api/dispatch/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ rideId, type })
+    });
+    if (!res.ok) throw new Error('Ошибка');
+    toast('Отменено');
+    loadData();
+  } catch (e) { toast('Ошибка: ' + e.message); }
+}
+
+/* ─── Toast ────────────────────────────────────────────────── */
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+/* ─── Auto-refresh every 30s ──────────────────────────────── */
+setInterval(loadData, 30000);
+</script>
+</body>
+</html>

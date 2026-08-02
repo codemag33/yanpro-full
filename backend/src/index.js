@@ -49,11 +49,14 @@ app.get('/health', async (_, res) => {
   }
 });
 
-// Раздача PWA пассажира (папка /passenger), водителя/механика (папка /driver) и админки (папка /admin)
-app.use('/passenger', express.static('passenger'));
-app.use('/driver', express.static('driver'));
-app.use('/admin', express.static('admin'));
-app.use('/pwa', express.static('.'));
+// Раздача собранных Vite PWA (папка web/ в контейнере = dist фронтенда):
+// /passenger, /driver, /admin + общие ассеты /assets.
+app.use('/passenger', express.static('web/passenger'));
+app.use('/driver', express.static('web/driver'));
+app.use('/admin', express.static('web/admin'));
+app.use('/assets', express.static('web/assets'));
+// Совместимость со старыми закешированными страницами (было /pwa/connection-manager.js)
+app.use('/pwa', express.static('web'));
 // Постоянная ссылка на APK водителя: /apk/yanpro-driver.apk
 // (папка apk/ монтируется в контейнер с хоста и обновляется скриптом update-apk.sh)
 app.use('/apk', express.static('apk'));

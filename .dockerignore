@@ -1,0 +1,9 @@
+# Не тащим в build-контекст докера ничего лишнего
+node_modules
+**/node_modules
+frontend/dist
+dist
+.git
+.gitignore
+*.log
+.env
