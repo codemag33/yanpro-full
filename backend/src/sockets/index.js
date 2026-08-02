@@ -147,7 +147,7 @@ function setupSockets(io) {
             if (role === 'mechanic') {
               const pending = await db.query(
                 `SELECT id, ST_Y(pickup::geometry) AS lat, ST_X(pickup::geometry) AS lon,
-                        car_make, phone, breakdown_type, description, passenger_id
+                        car_make, phone, breakdown_type, description, passenger_id, pickup_address
                  FROM assistance_requests
                  WHERE status = 'waiting'
                    AND ST_DWithin(pickup::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 25000)
@@ -159,6 +159,7 @@ function setupSockets(io) {
                   assistId: a.id,
                   passengerName: 'Пассажир',
                   pickup: { lat: a.lat, lon: a.lon },
+                  pickupAddress: a.pickup_address,
                   carMake: a.car_make,
                   phone: a.phone,
                   breakdownType: a.breakdown_type,
@@ -215,6 +216,73 @@ function setupSockets(io) {
           socket.emit('pending:assists', assists.rows);
         }
       } catch (e) { console.error('[pending:list]', e.message); }
+    });
+
+    // ─── Возобновить свободную заявку (клик по кружку на карте или по пропущенной) ──
+    // Отправляет заявку в личный канал водителя/механика, если она ещё свободна.
+    socket.on('ride:reactivate', async (data, ack) => {
+      if (role !== 'driver' || !data?.rideId) return;
+      try {
+        const r = await db.query(
+          `SELECT r.id, r.pickup_address, r.destination_address, r.passenger_id,
+                  ST_Y(r.pickup::geometry) AS lat, ST_X(r.pickup::geometry) AS lon,
+                  ST_Y(r.destination::geometry) AS dest_lat, ST_X(r.destination::geometry) AS dest_lon,
+                  u.name AS passenger_name
+           FROM rides r LEFT JOIN users u ON u.id = r.passenger_id
+           WHERE r.id = $1 AND r.status = 'searching'`,
+          [data.rideId]
+        );
+        if (!r.rows.length) {
+          if (typeof ack === 'function') ack({ ok: false, error: 'taken' });
+          return;
+        }
+        const ride = r.rows[0];
+        socket.emit('ride:new_request', {
+          rideId: ride.id,
+          passengerName: ride.passenger_name || 'Пассажир',
+          pickup: { lat: ride.lat, lon: ride.lon },
+          pickupAddress: ride.pickup_address,
+          destination: { lat: ride.dest_lat || 0, lon: ride.dest_lon || 0 },
+          destinationAddress: ride.destination_address,
+        });
+        if (typeof ack === 'function') ack({ ok: true });
+      } catch (e) {
+        console.error('[ride:reactivate]', e.message);
+        if (typeof ack === 'function') ack({ ok: false, error: 'server_error' });
+      }
+    });
+
+    socket.on('assist:reactivate', async (data, ack) => {
+      if (role !== 'mechanic' || !data?.assistId) return;
+      try {
+        const a = await db.query(
+          `SELECT a.id, a.car_make, a.phone, a.breakdown_type, a.description, a.pickup_address, a.passenger_id,
+                  ST_Y(a.pickup::geometry) AS lat, ST_X(a.pickup::geometry) AS lon,
+                  u.name AS passenger_name
+           FROM assistance_requests a LEFT JOIN users u ON u.id = a.passenger_id
+           WHERE a.id = $1 AND a.status = 'waiting'`,
+          [data.assistId]
+        );
+        if (!a.rows.length) {
+          if (typeof ack === 'function') ack({ ok: false, error: 'taken' });
+          return;
+        }
+        const assist = a.rows[0];
+        socket.emit('assistance:new_request', {
+          assistId: assist.id,
+          passengerName: assist.passenger_name || 'Пассажир',
+          pickup: { lat: assist.lat, lon: assist.lon },
+          pickupAddress: assist.pickup_address,
+          carMake: assist.car_make,
+          phone: assist.phone,
+          breakdownType: assist.breakdown_type,
+          description: assist.description,
+        });
+        if (typeof ack === 'function') ack({ ok: true });
+      } catch (e) {
+        console.error('[assist:reactivate]', e.message);
+        if (typeof ack === 'function') ack({ ok: false, error: 'server_error' });
+      }
     });
 
     // ─── Поездка: запрос от пассажира ───────────────────────────────────
@@ -385,6 +453,7 @@ function setupSockets(io) {
       const assist = await assistDb.createAssist({
         passengerId: userId,
         pickup: data.pickup,
+        pickupAddress: data.pickupAddress,
         carMake: data.carMake,
         phone: data.phone,
         breakdownType: data.breakdownType,
@@ -398,6 +467,7 @@ function setupSockets(io) {
           assistId: assist.id,
           passengerName: name,
           pickup: data.pickup,
+          pickupAddress: assist.pickup_address,
           carMake: data.carMake,
           phone: data.phone,
           breakdownType: data.breakdownType,

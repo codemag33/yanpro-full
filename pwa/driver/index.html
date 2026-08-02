@@ -252,6 +252,7 @@ const state = {
   markers: { self: null, passenger: null },
   pendingMarkers: [],
   isOnline: false,
+  lastPos: null,           // последние известные координаты (GPS или тап) — для маршрута
   pendingRequest: null,   // входящий заказ/заявка, ждущая решения водителя
   requestQueue: [],       // очередь ожидающих заявок (когда показывается текущая)
   countdownTimer: null,
@@ -457,6 +458,7 @@ function initMap() {
   state.map.on('click', (e) => {
     if (state.activeRide || state.activeAssist) return; // во время поездки точку не трогаем
     const { lng, lat } = e.lngLat;
+    state.lastPos = { lat, lon: lng };
     placeMarker('self', lat, lng, isMechanic() ? '🔧' : '🚗');
     if (state.socket) {
       state.socket.emit('location:update', {
@@ -501,6 +503,7 @@ function startLocationWatch() {
   geoWatchId = navigator.geolocation.watchPosition(
     (pos) => {
       const { latitude: lat, longitude: lon } = pos.coords;
+      state.lastPos = { lat, lon };
       placeMarker('self', lat, lon, isMechanic() ? '🔧' : '🚗');
       if (state.socket) {
         state.socket.emit('location:update', {
@@ -509,6 +512,11 @@ function startLocationWatch() {
           assistId: state.activeAssist?.id,
         });
       }
+      // Первая координата после принятия заказа — рисуем маршрут, если его ещё нет
+      const r = state.activeRide;
+      if (r && r.status === 'accepted' && !r.routeToPickup) drawRouteToPickup();
+      const a = state.activeAssist;
+      if (a && !a.routeToPickup) drawRouteToAssist();
     },
     () => {
       if (!geoFailNotified) {
@@ -590,6 +598,8 @@ async function openSkipped() {
     data.skips.forEach((s) => {
       const div = document.createElement('div');
       div.className = 'histItem';
+      const isOpen = s.status === 'searching' || s.status === 'waiting';
+      if (isOpen) div.style.cursor = 'pointer';
       const date = s.skipped_at ? new Date(s.skipped_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
       const typeLabel = s.request_type === 'assist' ? '🔧 Помощь' : '🚕 Заказ';
       const statusLabel = { searching: '⏳ Ищет водителя', waiting: '⏳ Ищет мастера', accepted: '✅ Принят', in_progress: '🚗 В пути', completed: '✅ Выполнено', cancelled: '❌ Отменено' }[s.status] || s.status;
@@ -601,7 +611,9 @@ async function openSkipped() {
         <div class="top"><span>${date} ${typeLabel}</span><span style="color:${statusColor};font-size:12px;font-weight:600;">${statusLabel}</span></div>
         <div class="addr">${from}${to}</div>
         ${namePhone ? '<div style="font-size:12px;color:var(--muted);">' + namePhone + '</div>' : ''}
+        ${isOpen ? '<div style="font-size:12px;color:var(--yellow);font-weight:600;margin-top:4px;">↩ Нажмите, чтобы взять в работу</div>' : ''}
       `;
+      if (isOpen) div.onclick = () => reactivateRequest(s.request_type, s.request_id);
       list.appendChild(div);
     });
   } catch { list.innerHTML = '<div style="color:#777;text-align:center;padding:20px;">Не удалось загрузить</div>'; }
@@ -655,8 +667,11 @@ function connectSocket() {
   });
   state.socket.on('session:restore_assist', (a) => {
     state.activeAssist = { id: a.id, status: a.status, carMake: a.car_make, breakdownType: a.breakdown_type,
-      pickup: { lat: a.pickup_lat, lon: a.pickup_lon } };
+      name: a.passenger_name, phone: a.phone, description: a.description,
+      pickup: { lat: a.pickup_lat, lon: a.pickup_lon }, pickupAddress: a.pickup_address,
+      routeToPickup: null };
     renderActiveAssist();
+    if (a.status === 'accepted') drawRouteToAssist();
   });
 
   // ─── Входящие заказы ────────────────────────────────────────────────
@@ -739,7 +754,7 @@ function showIncomingRequest(kind, data) {
       <div class="reqBadge" style="background:#3DCC6E;">ПОМОЩЬ НА ДОРОГЕ</div>
       <div class="reqName">${data.passengerName}</div>
       <div class="reqMeta">${typeLabels[data.breakdownType] || data.breakdownType || ''}${data.carMake ? ' · ' + data.carMake : ''}</div>
-      <div class="addrRow"><div class="dot pickup"></div><div class="addrText">${(data.pickup.lat.toFixed(5) + ', ' + data.pickup.lon.toFixed(5))}</div></div>
+      <div class="addrRow"><div class="dot pickup"></div><div class="addrText">${(data.pickupAddress || (data.pickup.lat.toFixed(5) + ', ' + data.pickup.lon.toFixed(5)))}</div></div>
       <div class="reqActions">
         <button class="btnDecline" id="btnDeclineReq">Пропустить</button>
         <button class="btnAccept" id="btnAcceptReq">Принять</button>
@@ -796,11 +811,12 @@ function acceptIncomingRequest() {
     state.socket.emit('assistance:accept', { assistId: req.assistId });
     state.activeAssist = { id: req.assistId, status: 'accepted', name: req.passengerName,
       carMake: req.carMake, breakdownType: req.breakdownType, phone: req.phone, description: req.description,
-      pickup: req.pickup };
+      pickup: req.pickup, pickupAddress: req.pickupAddress, routeToPickup: null };
     state.chatContext = { contextType: 'assist', contextId: req.assistId };
     placeMarker('passenger', req.pickup.lat, req.pickup.lon, '🧍');
     state.map.flyTo({ center: [req.pickup.lon, req.pickup.lat], zoom: 15 });
     renderActiveAssist();
+    drawRouteToAssist();
   }
   state.pendingRequest = null;
 }
@@ -822,6 +838,7 @@ function renderPendingMarkers(kind, items) {
     const el = document.createElement('div');
     el.className = 'pendingMarker' + (kind === 'assist' ? ' assist' : '');
     el.textContent = kind === 'assist' ? '🔧' : '🚕';
+    el.onclick = () => reactivateRequest(kind, item.id);
     const marker = new maplibregl.Marker({ element: el })
       .setLngLat([item.lon, item.lat])
       .addTo(state.map);
@@ -838,6 +855,7 @@ function addPendingMarker(kind, data) {
   const el = document.createElement('div');
   el.className = 'pendingMarker' + (kind === 'assist' ? ' assist' : '');
   el.textContent = kind === 'assist' ? '🔧' : '🚕';
+  el.onclick = () => reactivateRequest(kind, data.id);
   const marker = new maplibregl.Marker({ element: el })
     .setLngLat([data.lon, data.lat])
     .addTo(state.map);
@@ -851,13 +869,37 @@ function removePendingMarker(kind, id) {
   }
 }
 
+// Клик по кружку на карте или по пропущенной заявке — заявка снова
+// приходит лично водителю/механику, если её ещё никто не взял.
+function reactivateRequest(kind, id) {
+  if (!state.socket) return;
+  if (state.activeRide || state.activeAssist) {
+    toast('Сначала завершите текущую заявку');
+    return;
+  }
+  const ev = kind === 'assist' ? 'assist:reactivate' : 'ride:reactivate';
+  const payload = kind === 'assist' ? { assistId: id } : { rideId: id };
+  state.socket.emit(ev, payload, (res) => {
+    if (res && res.ok === false) {
+      toast(res.error === 'taken' ? 'Заявку уже взяли' : 'Не удалось активировать заявку');
+    } else {
+      toast('Заявка снова у вас — примите решение');
+    }
+  });
+}
+
 /* ════════════════════════ НИЖНИЙ ЛИСТ АКТИВНОГО ЗАКАЗА ════════════════════════ */
 const sheet = document.getElementById('sheet');
+
+function getSelfPos() {
+  return state.markers.self?.getLngLat()
+    || (state.lastPos ? { lng: state.lastPos.lon, lat: state.lastPos.lat } : null);
+}
 
 async function drawRouteToPickup() {
   const r = state.activeRide;
   if (!r) return;
-  const selfPos = state.markers.self?.getLngLat();
+  const selfPos = getSelfPos();
   if (!selfPos) return;
   const route = await fetchRoute(selfPos.lat, selfPos.lng, r.pickup.lat, r.pickup.lon);
   if (!route || !state.activeRide || state.activeRide.id !== r.id) return;
@@ -866,10 +908,22 @@ async function drawRouteToPickup() {
   renderActiveRide();
 }
 
+async function drawRouteToAssist() {
+  const a = state.activeAssist;
+  if (!a) return;
+  const selfPos = getSelfPos();
+  if (!selfPos) return;
+  const route = await fetchRoute(selfPos.lat, selfPos.lng, a.pickup.lat, a.pickup.lon);
+  if (!route || !state.activeAssist || state.activeAssist.id !== a.id) return;
+  a.routeToPickup = route;
+  drawRouteOnMap(route.geometry);
+  renderActiveAssist();
+}
+
 async function drawRouteToDestination() {
   const r = state.activeRide;
   if (!r || !r.destination) return;
-  const selfPos = state.markers.self?.getLngLat();
+  const selfPos = getSelfPos();
   if (!selfPos) return;
   const route = await fetchRoute(selfPos.lat, selfPos.lng, r.destination.lat, r.destination.lon);
   if (!route || !state.activeRide || state.activeRide.id !== r.id) return;
@@ -929,6 +983,8 @@ function renderActiveAssist() {
   const a = state.activeAssist;
   if (!a) { sheet.classList.add('hidden'); return; }
   sheet.classList.remove('hidden');
+  const routeInfo = a.routeToPickup
+    ? `<div class="sheetRoute">🚗 ${formatDistance(a.routeToPickup.distance)} · ${formatDuration(a.routeToPickup.duration)}</div>` : '';
   sheet.innerHTML = `
     <div class="dragHandle"></div>
     <div class="passRow">
@@ -936,6 +992,8 @@ function renderActiveAssist() {
       <div class="passInfo"><div class="name">${a.name || 'Пассажир'}</div><div class="role">Выехали на помощь</div></div>
     </div>
     <div class="sheetAddr">🚗 ${a.carMake || ''} ${a.phone ? '· 📞 ' + a.phone : ''}</div>
+    ${a.pickupAddress ? `<div class="sheetAddr">📍 ${a.pickupAddress}</div>` : ''}
+    ${routeInfo}
     <div class="sheetAddr">${a.description || ''}</div>
     <div class="actionsRow">
       <button class="btnGray" id="btnChat">💬 Чат</button>

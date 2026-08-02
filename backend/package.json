@@ -9,6 +9,7 @@
     "migrate": "psql \"$DATABASE_URL\" -f db/schema.sql",
     "migrate:v2.2": "psql \"$DATABASE_URL\" -f db/schema_v2.2.sql",
     "migrate:v2.3": "psql \"$DATABASE_URL\" -f db/schema_v2.3.sql",
+    "migrate:v2.4": "psql \"$DATABASE_URL\" -f db/schema_v2.4.sql",
     "create-admin": "node db/seed.js"
   },
   "dependencies": {
