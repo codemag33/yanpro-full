@@ -336,6 +336,19 @@ document.getElementById('btnRegister').onclick = async () => {
   } catch (e) { authError.textContent = e.message === 'login_taken' ? 'Логин уже занят' : 'Ошибка регистрации'; }
 };
 
+// Enter в полях логина/пароля = вход без нажатия кнопки
+for (const id of ['loginLogin', 'loginPass']) {
+  document.getElementById(id).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btnLogin').click(); }
+  });
+}
+// Enter в полях регистрации = регистрация без нажатия кнопки
+for (const id of ['regName', 'regLogin', 'regPhone', 'regPass', 'regVehicleMake', 'regVehiclePlate']) {
+  document.getElementById(id).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btnRegister').click(); }
+  });
+}
+
 function onAuthSuccess(data) {
   state.token = data.token; state.user = data.user;
   localStorage.setItem('yanpro_driver_token', state.token);
@@ -435,6 +448,22 @@ function initMap() {
   });
   state.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 
+  // Тап по карте — вручную указать своё местоположение. Это ОСНОВНОЙ способ
+  // на устройствах, где геолокация не работает (GPS выключен, нет разрешения).
+  state.map.on('click', (e) => {
+    if (state.activeRide || state.activeAssist) return; // во время поездки точку не трогаем
+    const { lng, lat } = e.lngLat;
+    placeMarker('self', lat, lng, isMechanic() ? '🔧' : '🚗');
+    if (state.socket) {
+      state.socket.emit('location:update', {
+        lat, lon: lng,
+        rideId: state.activeRide?.id,
+        assistId: state.activeAssist?.id,
+      });
+    }
+    toast('Точка установлена вручную');
+  });
+
   // Если vector-стиль не загрузился (блокировка/таймаут сети) — переключаемся
   // на простые растровые тайлы OSM вместо пустого экрана.
   let fellBack = false;
@@ -462,6 +491,7 @@ function placeMarker(kind, lat, lon, glyph) {
    Как и в PWA пассажира — деградация без падений: если вотчер геолокации не
    отвечает, просто не шлём координаты, ничего не рушится. */
 let geoWatchId = null;
+let geoFailNotified = false;
 function startLocationWatch() {
   if (!navigator.geolocation || geoWatchId !== null) return;
   geoWatchId = navigator.geolocation.watchPosition(
@@ -476,7 +506,12 @@ function startLocationWatch() {
         });
       }
     },
-    () => {},
+    () => {
+      if (!geoFailNotified) {
+        geoFailNotified = true;
+        toast('Геолокация недоступна — тапните по карте, чтобы указать своё местоположение');
+      }
+    },
     { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
   );
 }

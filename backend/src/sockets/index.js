@@ -20,6 +20,43 @@ function setupSockets(io) {
   // userId → timestamp последней проверки
   const pendingChecked = new Map();
   const PENDING_CHECK_TTL_MS = 5 * 60 * 1000;
+
+  // ─── Истечение заявок: пассажир пропал или никто не принял ─────────────
+  // Без этого "мёртвые" заявки в статусе searching/waiting висели на картах
+  // водителей вечно (кружки, которые нельзя принять).
+  const REQUEST_TTL_MIN = 10;
+  const expiryTimer = setInterval(async () => {
+    try {
+      const rides = await db.query(
+        `UPDATE rides SET status = 'cancelled', finished_at = now(), cancel_reason = 'timeout'
+         WHERE status = 'searching' AND created_at < now() - interval '${REQUEST_TTL_MIN} minutes'
+         RETURNING id`
+      );
+      for (const r of rides.rows) {
+        io.to(rideRoom(r.id)).emit('ride:cancelled', { rideId: r.id, by: 'system', reason: 'timeout' });
+        io.to('dispatch').emit('ride:cancelled', { rideId: r.id });
+        io.emit('pending:ride_removed', { rideId: r.id });
+        io.socketsLeave(rideRoom(r.id));
+        notifiedDriversMap.delete(r.id);
+      }
+      if (rides.rowCount) console.log(`[expiry] снято поездок: ${rides.rowCount}`);
+
+      const assists = await db.query(
+        `UPDATE assistance_requests SET status = 'cancelled', finished_at = now()
+         WHERE status = 'waiting' AND created_at < now() - interval '${REQUEST_TTL_MIN} minutes'
+         RETURNING id`
+      );
+      for (const a of assists.rows) {
+        io.to(assistRoom(a.id)).emit('assistance:cancelled', { assistId: a.id, by: 'system' });
+        io.to('dispatch').emit('assistance:cancelled', { assistId: a.id });
+        io.emit('pending:assist_removed', { assistId: a.id });
+        io.socketsLeave(assistRoom(a.id));
+      }
+      if (assists.rowCount) console.log(`[expiry] снято заявок: ${assists.rowCount}`);
+    } catch (e) {
+      console.error('[expiry]', e.message);
+    }
+  }, 60 * 1000).unref();
   // ─── Аутентификация на этапе handshake ──────────────────────────────
   io.use((socket, next) => {
     try {
