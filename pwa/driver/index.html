@@ -680,6 +680,7 @@ function connectSocket() {
       pickup: { lat: ride.pickup_lat, lon: ride.pickup_lon, address: ride.pickup_address },
       destination: { lat: ride.destination_lat, lon: ride.destination_lon, address: ride.destination_address },
       routeToPickup: null, routeToDest: null };
+    state.chatContext = { contextType: 'ride', contextId: ride.id };
     renderActiveRide();
     if (ride.status === 'accepted') drawRouteToPickup();
     else if (ride.status === 'in_progress') drawRouteToDestination();
@@ -689,6 +690,7 @@ function connectSocket() {
       name: a.passenger_name, phone: a.phone, description: a.description,
       pickup: { lat: a.pickup_lat, lon: a.pickup_lon }, pickupAddress: a.pickup_address,
       routeToPickup: null };
+    state.chatContext = { contextType: 'assist', contextId: a.id };
     renderActiveAssist();
     if (a.status === 'accepted') drawRouteToAssist();
   });

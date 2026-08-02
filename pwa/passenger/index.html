@@ -503,12 +503,18 @@ function connectSocket() {
     if (!state.backgrounded) updateConn('offline');
   });
 
-  state.socket.on('session:restore_ride', (ride) => { state.activeRide = ride; renderRideState(ride.status); });
-  state.socket.on('session:restore_assist', (a) => { state.activeAssist = a; renderAssistState(a.status); });
+  state.socket.on('session:restore_ride', (ride) => {
+    state.activeRide = ride; renderRideState(ride.status);
+    state.chatContext = { contextType: 'ride', contextId: ride.id };
+  });
+  state.socket.on('session:restore_assist', (a) => {
+    state.activeAssist = a; renderAssistState(a.status);
+    state.chatContext = { contextType: 'assist', contextId: a.id };
+  });
 
   state.socket.on('ride:created', () => renderSheetSearching('ride'));
   state.socket.on('ride:accepted', (data) => {
-    state.activeRide = { ...(state.activeRide || {}), id: data.rideId, driver_id: data.driverId };
+    state.activeRide = { ...(state.activeRide || {}), id: data.rideId, driver_id: data.driverId, driverName: data.driverName };
     state.chatContext = { contextType: 'ride', contextId: data.rideId };
     toast(`Водитель ${data.driverName} принял заказ`);
     renderRideAccepted(data.driverName);
@@ -528,7 +534,7 @@ function connectSocket() {
 
   state.socket.on('assistance:created', () => renderSheetSearching('assist'));
   state.socket.on('assistance:accepted', (data) => {
-    state.activeAssist = { ...(state.activeAssist || {}), id: data.assistId, mechanic_id: data.mechanicId };
+    state.activeAssist = { ...(state.activeAssist || {}), id: data.assistId, mechanic_id: data.mechanicId, mechanicName: data.mechanicName };
     state.chatContext = { contextType: 'assist', contextId: data.assistId };
     toast(`Мастер ${data.mechanicName} выехал`);
     renderAssistAccepted(data.mechanicName);
@@ -811,6 +817,8 @@ function resetAssist() {
 function openChat() {
   document.getElementById('chatOverlay').classList.remove('hidden');
   document.getElementById('chatMessages').innerHTML = '';
+  document.getElementById('chatPeerName').textContent =
+    state.activeRide?.driverName || state.activeAssist?.mechanicName || (state.activeRide ? 'Водитель' : 'Мастер');
   if (state.chatContext) state.socket.emit('chat:history', state.chatContext);
 }
 document.getElementById('chatBack').onclick = () => document.getElementById('chatOverlay').classList.add('hidden');
