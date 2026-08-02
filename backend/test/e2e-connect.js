@@ -157,7 +157,10 @@ async function close(sock, name) {
 
   await emit(d2, 'ride:finish', { rideId: ride1, price: 300 });
   // водитель 2 в оффлайн — для сценария 4 (DRV2 должен быть по-настоящему offline)
+  // emit без ack + мгновенный close() = гонка: пакет может не дойти, и статус
+  // останется online. Даём socket.io время отправить и обработать на сервере.
   d2.emit('driver:status', { status: 'offline' });
+  await sleep(700);
   await close(d2, 'дрив2');
 
   // ──────────────────────────── СЦЕНАРИЙ 2 ────────────────────────────
