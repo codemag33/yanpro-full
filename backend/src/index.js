@@ -18,8 +18,13 @@ const setupSockets = require('./sockets');
 
 const PORT = process.env.PORT || 3002;
 
+// Список разрешённых origins (через запятую). По умолчанию — только свой домен.
+// Wildcard '*' сознательно не используется: любой сайт не должен иметь доступ к API.
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3002')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
 const app = express();
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+app.use(cors({ origin: allowedOrigins, methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use(express.json());
 
 app.use('/api/auth', authRoutes);
@@ -53,7 +58,7 @@ app.get('/', (_, res) => res.redirect('/passenger/'));
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: process.env.CORS_ORIGIN || '*', methods: ['GET', 'POST'] },
+  cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
 });
 app.set('io', io);
 setupSockets(io);

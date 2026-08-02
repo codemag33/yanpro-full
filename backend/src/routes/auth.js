@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { hashPassword, verifyPassword, signToken } = require('../auth');
 const { requireAuth } = require('../middleware/authMiddleware');
@@ -8,7 +9,16 @@ const router = express.Router();
 const ALLOWED_ROLES = ['passenger', 'driver', 'mechanic'];
 // 'admin' сознательно не выдаётся через public register — создаётся через db/seed.js
 
-router.post('/register', async (req, res) => {
+// Защита от брутфорса: не более 20 попыток входа/регистрации с одного IP за 15 минут
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_attempts' },
+});
+
+router.post('/register', authLimiter, async (req, res) => {
   try {
     const { login, phone, password, role, name, vehicle_make, vehicle_plate } = req.body;
 
@@ -52,7 +62,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { login, password } = req.body;
     if (!login || !password) return res.status(400).json({ error: 'missing_fields' });
