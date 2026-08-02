@@ -417,7 +417,7 @@ function drawRouteOnMap(geometry) {
   state.map.addSource('route-line', { type: 'geojson', data: geometry });
   state.map.addLayer({
     id: 'route-line', type: 'line', source: 'route-line',
-    paint: { 'line-color': '#FFCC00', 'line-width': 4, 'line-opacity': 0.8 }
+    paint: { 'line-color': '#2563EB', 'line-width': 4, 'line-opacity': 0.85 }
   });
 }
 
@@ -433,7 +433,7 @@ function drawDirectLineOnMap(lat1, lon1, lat2, lon2) {
   });
   state.map.addLayer({
     id: 'route-line', type: 'line', source: 'route-line',
-    paint: { 'line-color': '#FFCC00', 'line-width': 3 }
+    paint: { 'line-color': '#2563EB', 'line-width': 3, 'line-opacity': 0.85 }
   });
 }
 
@@ -468,6 +468,16 @@ function initMap() {
       });
     }
     toast('Точка установлена вручную');
+  });
+
+  // Правая кнопка мыши — сразу взять заявку под курсором (левая занята
+  // установкой точки). Если под курсором нет заявки — обычное контекстное меню.
+  state.map.on('contextmenu', (e) => {
+    const target = findPendingMarkerAt(e.point);
+    if (target) {
+      e.preventDefault();
+      takeRequestDirect(target.kind, target.id);
+    }
   });
 
   // Если vector-стиль не загрузился (блокировка/таймаут сети) — переключаемся
@@ -677,6 +687,7 @@ function connectSocket() {
   // ─── Входящие заказы ────────────────────────────────────────────────
   state.socket.on('ride:new_request', (data) => {
     if (state.activeRide || state.activeAssist) return;
+    if (state.directTake && state.directTake.id === data.rideId) return; // уже берём правой кнопкой
     if (state.pendingRequest) { state.requestQueue.push({ kind: 'ride', ...data }); return; }
     showIncomingRequest('ride', data);
     // Рисуем маршрут если есть
@@ -702,6 +713,7 @@ function connectSocket() {
   // ─── Входящие заявки на помощь ──────────────────────────────────────
   state.socket.on('assistance:new_request', (data) => {
     if (state.activeRide || state.activeAssist) return;
+    if (state.directTake && state.directTake.id === data.assistId) return; // уже берём правой кнопкой
     if (state.pendingRequest) { state.requestQueue.push({ kind: 'assist', ...data }); return; }
     showIncomingRequest('assist', data);
   });
@@ -791,33 +803,8 @@ function acceptIncomingRequest() {
   const req = state.pendingRequest;
   if (!req) return;
   clearTimeout(state.countdownTimer);
-  state.requestQueue = [];
   document.getElementById('requestCard').classList.add('hidden');
-
-  if (req.kind === 'ride') {
-    state.socket.emit('ride:accept', { rideId: req.rideId });
-    state.activeRide = {
-      id: req.rideId, status: 'accepted', name: req.passengerName,
-      pickup: { ...req.pickup, address: req.pickupAddress },
-      destination: { ...req.destination, address: req.destinationAddress },
-      routeToPickup: null, routeToDest: null,
-    };
-    state.chatContext = { contextType: 'ride', contextId: req.rideId };
-    placeMarker('passenger', req.pickup.lat, req.pickup.lon, '🧍');
-    state.map.flyTo({ center: [req.pickup.lon, req.pickup.lat], zoom: 15 });
-    renderActiveRide();
-    drawRouteToPickup();
-  } else {
-    state.socket.emit('assistance:accept', { assistId: req.assistId });
-    state.activeAssist = { id: req.assistId, status: 'accepted', name: req.passengerName,
-      carMake: req.carMake, breakdownType: req.breakdownType, phone: req.phone, description: req.description,
-      pickup: req.pickup, pickupAddress: req.pickupAddress, routeToPickup: null };
-    state.chatContext = { contextType: 'assist', contextId: req.assistId };
-    placeMarker('passenger', req.pickup.lat, req.pickup.lon, '🧍');
-    state.map.flyTo({ center: [req.pickup.lon, req.pickup.lat], zoom: 15 });
-    renderActiveAssist();
-    drawRouteToAssist();
-  }
+  acceptRequestData(req);
   state.pendingRequest = null;
 }
 
@@ -839,6 +826,7 @@ function renderPendingMarkers(kind, items) {
     el.className = 'pendingMarker' + (kind === 'assist' ? ' assist' : '');
     el.textContent = kind === 'assist' ? '🔧' : '🚕';
     el.onclick = () => reactivateRequest(kind, item.id);
+    el.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); takeRequestDirect(kind, item.id); };
     const marker = new maplibregl.Marker({ element: el })
       .setLngLat([item.lon, item.lat])
       .addTo(state.map);
@@ -856,6 +844,7 @@ function addPendingMarker(kind, data) {
   el.className = 'pendingMarker' + (kind === 'assist' ? ' assist' : '');
   el.textContent = kind === 'assist' ? '🔧' : '🚕';
   el.onclick = () => reactivateRequest(kind, data.id);
+  el.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); takeRequestDirect(kind, data.id); };
   const marker = new maplibregl.Marker({ element: el })
     .setLngLat([data.lon, data.lat])
     .addTo(state.map);
@@ -886,6 +875,79 @@ function reactivateRequest(kind, id) {
       toast('Заявка снова у вас — примите решение');
     }
   });
+}
+
+// Ближайший свободный маркер заявки к точке экрана (для правой кнопки мыши)
+function findPendingMarkerAt(point) {
+  let best = null, bestDist = Infinity;
+  for (const m of state.pendingMarkers) {
+    const p = state.map.project(m.marker.getLngLat());
+    const d = Math.hypot(p.x - point.x, p.y - point.y);
+    if (d < 45 && d < bestDist) { bestDist = d; best = m; }
+  }
+  return best;
+}
+
+// Правая кнопка мыши по заявке — сразу принять, без карточки.
+// Активируем заявку (если ещё свободна) и принимаем её, как только она придёт.
+function takeRequestDirect(kind, id) {
+  if (!state.socket) return;
+  if (state.activeRide || state.activeAssist) {
+    toast('Сначала завершите текущую заявку');
+    return;
+  }
+  const ev = kind === 'assist' ? 'assist:reactivate' : 'ride:reactivate';
+  const payload = kind === 'assist' ? { assistId: id } : { rideId: id };
+  const reqEventName = kind === 'assist' ? 'assistance:new_request' : 'ride:new_request';
+  state.directTake = { kind, id };
+  // Слушаем ответ ДО отправки, чтобы не пропустить событие
+  const waitMatch = (resolve) => {
+    state.socket.once(reqEventName, (data) => {
+      if ((kind === 'assist' ? data.assistId : data.rideId) === id) resolve(data);
+      else waitMatch(resolve);
+    });
+  };
+  const incoming = new Promise((r) => waitMatch(r));
+  state.socket.emit(ev, payload, (res) => {
+    if (res && res.ok === false) {
+      state.directTake = null;
+      toast(res.error === 'taken' ? 'Заявку уже взяли' : 'Не удалось взять заявку');
+    }
+  });
+  incoming.then((data) => {
+    state.directTake = null;
+    if (data) acceptRequestData({ kind, ...data });
+  });
+  setTimeout(() => { if (state.directTake && state.directTake.id === id) state.directTake = null; }, 15000);
+}
+
+// Принятие заявки (общее для карточки и правой кнопки мыши)
+function acceptRequestData(req) {
+  state.requestQueue = [];
+  if (req.kind === 'ride') {
+    state.socket.emit('ride:accept', { rideId: req.rideId });
+    state.activeRide = {
+      id: req.rideId, status: 'accepted', name: req.passengerName,
+      pickup: { ...req.pickup, address: req.pickupAddress },
+      destination: { ...req.destination, address: req.destinationAddress },
+      routeToPickup: null, routeToDest: null,
+    };
+    state.chatContext = { contextType: 'ride', contextId: req.rideId };
+    placeMarker('passenger', req.pickup.lat, req.pickup.lon, '🧍');
+    state.map.flyTo({ center: [req.pickup.lon, req.pickup.lat], zoom: 15 });
+    renderActiveRide();
+    drawRouteToPickup();
+  } else {
+    state.socket.emit('assistance:accept', { assistId: req.assistId });
+    state.activeAssist = { id: req.assistId, status: 'accepted', name: req.passengerName,
+      carMake: req.carMake, breakdownType: req.breakdownType, phone: req.phone, description: req.description,
+      pickup: req.pickup, pickupAddress: req.pickupAddress, routeToPickup: null };
+    state.chatContext = { contextType: 'assist', contextId: req.assistId };
+    placeMarker('passenger', req.pickup.lat, req.pickup.lon, '🧍');
+    state.map.flyTo({ center: [req.pickup.lon, req.pickup.lat], zoom: 15 });
+    renderActiveAssist();
+    drawRouteToAssist();
+  }
 }
 
 /* ════════════════════════ НИЖНИЙ ЛИСТ АКТИВНОГО ЗАКАЗА ════════════════════════ */
