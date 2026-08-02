@@ -421,6 +421,15 @@ function drawRouteOnMap(geometry) {
   });
 }
 
+// Убирает линию маршрута с карты (после завершения/отмены заявки)
+function removeRouteLine() {
+  if (!state.map) return;
+  if (state.map.getSource('route-line')) {
+    try { state.map.removeLayer('route-line'); } catch (e) {}
+    try { state.map.removeSource('route-line'); } catch (e) {}
+  }
+}
+
 function drawDirectLineOnMap(lat1, lon1, lat2, lon2) {
   if (!state.map || !state.map.isStyleLoaded()) return;
   if (state.map.getSource('route-line')) {
@@ -1067,18 +1076,20 @@ function renderActiveAssist() {
   `;
   document.getElementById('btnChat').onclick = openChat;
   document.getElementById('btnCancel').onclick = () => { state.socket.emit('assistance:cancel', { assistId: a.id }); resetAssist(); };
-  document.getElementById('btnPrimary').onclick = () => state.socket.emit('assistance:finish', { assistId: a.id });
+  document.getElementById('btnPrimary').onclick = () => showPriceModal('assist');
 }
 
 function resetRide() {
   state.activeRide = null; state.chatContext = null;
   Object.values(state.markers).forEach((m) => m && m.remove());
   state.markers.passenger = null;
+  removeRouteLine();
   renderActiveRide();
 }
 function resetAssist() {
   state.activeAssist = null; state.chatContext = null;
   if (state.markers.passenger) { state.markers.passenger.remove(); state.markers.passenger = null; }
+  removeRouteLine();
   renderActiveAssist();
 }
 
@@ -1109,17 +1120,21 @@ function appendChatMessage(m) {
 }
 
 /* ════════════════════════ МОДАЛКА ЦЕНЫ ════════════════════════ */
-function showPriceModal() {
-  const r = state.activeRide;
+// kind: 'ride' (по маршруту до точки Б) или 'assist' (по маршруту до клиента)
+function showPriceModal(kind) {
+  const r = kind === 'assist' ? state.activeAssist : state.activeRide;
   if (!r) return;
+  state.finishKind = kind;
   const overlay = document.getElementById('priceOverlay');
   overlay.classList.remove('hidden');
+  document.querySelector('#priceCard h3').textContent = kind === 'assist' ? 'Сумма за помощь' : 'Стоимость поездки';
   const info = document.getElementById('priceRouteInfo');
   const hint = document.getElementById('priceHint');
-  if (r.routeToDest) {
-    info.textContent = `${formatDistance(r.routeToDest.distance)} · ${formatDuration(r.routeToDest.duration)}`;
-    const km = r.routeToDest.distance / 1000;
-    const suggested = Math.round(50 + km * 20 + r.routeToDest.duration / 60 * 1.5);
+  const route = kind === 'assist' ? r.routeToPickup : r.routeToDest;
+  if (route) {
+    info.textContent = `${formatDistance(route.distance)} · ${formatDuration(route.duration)}`;
+    const km = route.distance / 1000;
+    const suggested = Math.round(50 + km * 20 + route.duration / 60 * 1.5);
     hint.textContent = `≈ ${suggested} ₽ (базовая тарифация)`;
     document.getElementById('priceInput').value = suggested;
   } else {
@@ -1132,7 +1147,12 @@ function showPriceModal() {
 document.getElementById('priceConfirm').onclick = () => {
   const price = parseFloat(document.getElementById('priceInput').value);
   document.getElementById('priceOverlay').classList.add('hidden');
-  state.socket.emit('ride:finish', { rideId: state.activeRide?.id, price: price || undefined });
+  if (state.finishKind === 'assist') {
+    state.socket.emit('assistance:finish', { assistId: state.activeAssist?.id, price: price || undefined });
+  } else {
+    state.socket.emit('ride:finish', { rideId: state.activeRide?.id, price: price || undefined });
+  }
+  state.finishKind = null;
 };
 document.getElementById('priceCancel').onclick = () => {
   document.getElementById('priceOverlay').classList.add('hidden');
