@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS user_blocks (
 );
 
 -- Индекс для проверки блокировок
-CREATE INDEX idx_user_blocks_active ON user_blocks(user_id) WHERE expires_at IS NULL OR expires_at > now();
+-- ВАЖНО: предикат не должен содержать now() — volatile-функции запрещены в индексах
+CREATE INDEX IF NOT EXISTS idx_user_blocks_active ON user_blocks(user_id);
 
 -- Таблица логов действий администратора
 CREATE TABLE IF NOT EXISTS admin_logs (
