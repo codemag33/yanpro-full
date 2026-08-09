@@ -7,11 +7,12 @@
 # ═══════════════════════════════════════════════════════════════════════
 set -e
 
-DIR="$(cd "$(dirname "$0")/.." && pwd)/backups"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DIR="${ROOT}/backups"
 KEEP=7
 mkdir -p "${DIR}"
 
-docker compose -f "${DIR}/.github/docker/docker-compose.yml" exec -T postgres \
+docker compose -f "${ROOT}/.github/docker/docker-compose.yml" exec -T postgres \
   pg_dump -U yanpro -d yanpro --format=custom > "${DIR}/yanpro-$(date +%F-%H%M).dump"
 
 ls -1t "${DIR}"/yanpro-*.dump | tail -n +$((KEEP + 1)) | xargs -r rm -f
