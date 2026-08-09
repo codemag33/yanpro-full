@@ -3,6 +3,18 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// ─── Подпись release-APK из переменных окружения (GitHub Secrets в CI) ──────
+// Локально можно задать в ~/.gradle/gradle.properties или переменными:
+//   KEYSTORE_FILE (путь к .jks), KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+val keystoreFile = System.getenv("KEYSTORE_FILE") ?: (project.findProperty("KEYSTORE_FILE") as String?)
+val keystorePassword = System.getenv("KEYSTORE_PASSWORD") ?: (project.findProperty("KEYSTORE_PASSWORD") as String?)
+val keyAlias = System.getenv("KEY_ALIAS") ?: (project.findProperty("KEY_ALIAS") as String?)
+val keyPassword = System.getenv("KEY_PASSWORD") ?: (project.findProperty("KEY_PASSWORD") as String?)
+val hasSigning = !keystoreFile.isNullOrBlank()
+        && !keystorePassword.isNullOrBlank()
+        && !keyAlias.isNullOrBlank()
+        && !keyPassword.isNullOrBlank()
+
 android {
     namespace = "com.driver.app"
     compileSdk = 34
@@ -15,6 +27,17 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        if (hasSigning) {
+            create("release") {
+                storeFile = file(keystoreFile!!)
+                storePassword = keystorePassword!!
+                keyAlias = keyAlias!!
+                keyPassword = keyPassword!!
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -23,6 +46,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

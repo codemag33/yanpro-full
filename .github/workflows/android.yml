@@ -35,22 +35,54 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # ─── Debug APK (для тестирования, всегда) ─────────────────────────
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: driver-app-debug
           path: android/app/build/outputs/apk/debug/*.apk
           retention-days: 14
 
+      # ─── Release APK (подписанный, если заданы секреты) ───────────────
+      - name: Set up keystore from secrets
+        if: env.KEYSTORE_FILE_B64 != ''
+        env:
+          KEYSTORE_FILE_B64: ${{ secrets.KEYSTORE_FILE_B64 }}
+        run: |
+          echo "$KEYSTORE_FILE_B64" | base64 -d > /tmp/release.keystore
+          echo "KEYSTORE_FILE=/tmp/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build Release APK (signed)
+        if: env.KEYSTORE_FILE != ''
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+
+      - name: Upload Release APK
+        if: env.KEYSTORE_FILE != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: driver-app-release
+          path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      # ─── Публикация в Release latest-apk ──────────────────────────────
       - name: Publish APK to Release (latest-apk)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk /tmp/yanpro-driver.apk
+          # Подписанный release-APK приоритетнее; иначе — debug
+          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk /tmp/yanpro-driver.apk
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk /tmp/yanpro-driver.apk
+          fi
           gh release view latest-apk --repo "${{ github.repository }}" >/dev/null 2>&1 \
             || gh release create latest-apk --repo "${{ github.repository }}" \
                --title "Latest APK" --notes "Последняя сборка приложения водителя (обновляется автоматически)"

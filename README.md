@@ -168,6 +168,59 @@ Pipeline автоматически:
 
 Конфиг: `.github/workflows/deploy.yml`
 
+## Android приложение водителя
+
+Сборка полностью автоматизирована через GitHub Actions (`.github/workflows/android.yml`).
+
+### Как собирается
+
+```
+push в android/** (main/develop)  или  вручную: Actions → Android Build → Run workflow
+        │
+        ▼
+ubuntu-latest: JDK 17 → ./gradlew assembleDebug   (всегда)
+                 └→ ./gradlew assembleRelease      (если заданы секреты подписи)
+        │
+        ▼
+main + push → публикация в GitHub Release "latest-apk" → yanpro-driver.apk
+        │
+        ▼
+сервер: scripts/update-apk.sh (cron) → apk/ → https://ваш-домен/apk/yanpro-driver.apk
+```
+
+- **Debug APK** собирается всегда — артефакт в Actions (`driver-app-debug`).
+- **Release APK** (minified + подписанный) собирается, если в репозитории заданы
+  секреты подписи — приоритет при публикации.
+
+### Настройка подписи (однократно)
+
+1. Создайте keystore локально:
+   ```bash
+   keytool -genkey -v -keystore release.keystore -alias yanpro -keyalg RSA \
+     -keysize 2048 -validity 10000
+   ```
+2. В GitHub: **Settings → Secrets and variables → Actions → New repository secret**:
+   | Secret | Значение |
+   |--------|----------|
+   | `KEYSTORE_FILE_B64` | `base64 release.keystore` (команда: `base64 -w0 release.keystore`) |
+   | `KEYSTORE_PASSWORD` | пароль keystore |
+   | `KEY_ALIAS` | алиас (`yanpro`) |
+   | `KEY_PASSWORD` | пароль ключа |
+
+3. Без секретов CI просто соберёт debug-APK (как раньше).
+
+### Локальная сборка
+
+```bash
+cd android
+./gradlew assembleDebug      # debug
+./gradlew assembleRelease    # release (нужен keystore, см. ниже)
+
+# Release с подписью локально: укажите переменные или добавьте в ~/.gradle/gradle.properties
+export KEYSTORE_FILE=/path/to/release.keystore KEYSTORE_PASSWORD=... KEY_ALIAS=... KEY_PASSWORD=...
+./gradlew assembleRelease
+```
+
 ## API документация
 
 ### Authentication
