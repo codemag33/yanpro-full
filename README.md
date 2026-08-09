@@ -58,7 +58,8 @@ git clone https://github.com/codemag33/yanpro-full.git
 cd yanpro-full
 
 # Аргумент — ваш будущий домен (для CORS). Можно без аргумента — будет https://localhost
-./scripts/install.sh https://taxi.example.ru
+# Опция --nginx — автоматически установит nginx + certbot и выпустит HTTPS-сертификат
+./scripts/install.sh https://taxi.example.ru --nginx
 ```
 
 Скрипт автоматически:
@@ -68,6 +69,7 @@ cd yanpro-full
 4. Собирает образ и запускает контейнеры (`docker compose up -d --build`)
 5. Ждёт готовности и создаёт администратора
 6. Выводит **логин/пароль админа** и адреса
+7. С `--nginx` — ставит nginx + certbot, настраивает прокси на 127.0.0.1:3002 и выпускает сертификат Let's Encrypt (домен должен указывать A-записью на сервер)
 
 > ⚠️ Пароль администратора печатается один раз — сохраните его.
 
@@ -92,6 +94,8 @@ docker compose -f .github/docker/docker-compose.yml up -d --build
 ```
 
 ### Nginx + HTTPS
+
+Скрипт делает это автоматически с опцией `--nginx` (ставит nginx, certbot и выпускает сертификат). Вручную — так:
 
 Приложение слушает порт `3002` (внутри контейнера). Наружу его выводит nginx с SSL:
 
