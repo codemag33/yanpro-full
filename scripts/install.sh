@@ -9,11 +9,14 @@
 #   2. Создаёт .github/docker/.env с безопасными паролями (если нет)
 #   3. Скачивает APK водителя из GitHub Release (если доступен)
 #   4. Собирает и запускает Postgres + Redis + приложение
-#   5. Ждёт готовности и создаёт администратора
+#   5. Ждёт готовности, создаёт swap (при малой RAM), файрвол, бэкапы, админа
 #   6. Печатает пароль админа и адреса
 #   7. [--nginx] ставит nginx + certbot и выпускает HTTPS-сертификат
 # ═══════════════════════════════════════════════════════════════════════
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "${SCRIPT_DIR}/.."
 
 DOMAIN="${1:-https://localhost}"
 WITH_NGINX=0
@@ -76,13 +79,53 @@ for i in $(seq 1 45); do
   sleep 2
 done
 
-# ─── 6. Администратор ──────────────────────────────────────────────────
+# ─── 6. Swap (если RAM ≤ 2 ГБ и swap ещё нет) ──────────────────────────
+HOST="${DOMAIN#https://}"
+HOST="${HOST#http://}"
+TOTAL_RAM_KB=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+TOTAL_RAM_MB=$((TOTAL_RAM_KB / 1024))
+if [ "${TOTAL_RAM_MB}" -le 2048 ] && [ ! -f /swapfile ]; then
+  echo "💾 RAM ≤ 2 ГБ — создаю swap 2 ГБ..."
+  fallocate -l 2G /swapfile && chmod 600 /swapfile
+  mkswap /swapfile >/dev/null 2>&1 && swapon /swapfile >/dev/null 2>&1
+  grep -q "/swapfile" /etc/fstab || echo "/swapfile none swap sw 0 0" >> /etc/fstab
+  echo "✅ Swap создан"
+fi
+
+# ─── 7. Файрвол (ufw): наружу только 80/443 ────────────────────────────
+if command -v ufw >/dev/null 2>&1; then
+  echo "🔥 Настраиваю файрвол (ufw): открываю 22, 80, 443..."
+  ufw allow 22/tcp >/dev/null 2>&1 || true
+  ufw allow 80/tcp >/dev/null 2>&1 || true
+  ufw allow 443/tcp >/dev/null 2>&1 || true
+  ufw --force enable >/dev/null 2>&1 || true
+  echo "✅ ufw: открыты 22/80/443 (остальное закрыто)"
+else
+  echo "ℹ️  ufw не установлен — файрвол не настраиваю (установите: apt install ufw)"
+fi
+
+# ─── 8. Автозапуск Docker при перезагрузке ─────────────────────────────
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl enable docker >/dev/null 2>&1 || true
+  echo "✅ Docker автозапуск включён (контейнеры имеют restart: unless-stopped)"
+fi
+
+# ─── 9. Бэкапы БД + cron ───────────────────────────────────────────────
+mkdir -p backups
+chmod +x scripts/backup-db.sh
+# Cron добавляется только при реальной установке (не localhost)
+if [ "${HOST:-localhost}" != "localhost" ] || [ "$DOMAIN" != "https://localhost" ]; then
+  if ! crontab -l 2>/dev/null | grep -q "backup-db.sh"; then
+    (crontab -l 2>/dev/null; echo "0 3 * * * $(pwd)/scripts/backup-db.sh >> $(pwd)/backups/backup.log 2>&1") | crontab -
+    echo "✅ Cron бэкапа БД добавлен (03:00, хранит 7 копий в backups/)"
+  fi
+fi
+
+# ─── 10. Администратор ─────────────────────────────────────────────────
 ADMIN_PASS=$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-12)
 $COMPOSE exec -T app node db/seed.js admin "$ADMIN_PASS" "Администратор" >/dev/null
 
-# ─── 7. Nginx + HTTPS (опционально) ───────────────────────────────────
-HOST="${DOMAIN#https://}"
-HOST="${HOST#http://}"
+# ─── 11. Nginx + HTTPS (опционально) ───────────────────────────────────
 if [ "$WITH_NGINX" = 1 ]; then
   if [ "$HOST" = "localhost" ]; then
     echo "❌ Для --nginx нужен реальный домен (не https://localhost). Пропускаю настройку nginx."

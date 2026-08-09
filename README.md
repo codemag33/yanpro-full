@@ -48,7 +48,7 @@ curl http://localhost:3002/health
 Docker Compose одной командой.
 
 ### Требования
-- Linux-сервер (Ubuntu/Debian/CentOS), 2 ГБ RAM+
+- Linux-сервер (Ubuntu/Debian), **1 vCPU / 1–2 ГБ RAM / 10+ ГБ SSD** — минимум; рекомендуемо 2 vCPU / 2–4 ГБ RAM / 20+ ГБ SSD
 - Docker + Docker Compose v2 (`docker compose version` — должен работать)
 
 ### Установка (одна команда)
@@ -68,10 +68,23 @@ cd yanpro-full
 3. Скачивает APK водителя из GitHub Release в `apk/`
 4. Собирает образ и запускает контейнеры (`docker compose up -d --build`)
 5. Ждёт готовности и создаёт администратора
-6. Выводит **логин/пароль админа** и адреса
-7. С `--nginx` — ставит nginx + certbot, настраивает прокси на 127.0.0.1:3002 и выпускает сертификат Let's Encrypt (домен должен указывать A-записью на сервер)
+6. Настраивает прод: **swap 2 ГБ** (если RAM ≤ 2 ГБ), **файрвол ufw** (наружу только 22/80/443), автозапуск Docker, **cron-бэкап БД** (ежедневно 03:00, 7 копий в `backups/`)
+7. Выводит **логин/пароль админа** и адреса
+8. С `--nginx` — ставит nginx + certbot, настраивает прокси на 127.0.0.1:3002 и выпускает сертификат Let's Encrypt (домен должен указывать A-записью на сервер)
 
 > ⚠️ Пароль администратора печатается один раз — сохраните его.
+> ⚠️ Файрвол открывает только 22/80/443 — Postgres и Redis остаются доступны лишь локально (127.0.0.1), как и задумано.
+
+### Бэкапы
+
+```bash
+# Запустить вручную (после каждого деплоя тоже не помешает)
+./scripts/backup-db.sh          # сохранит копию в backups/yanpro-ГГГГ-ММ-ДД-ЧЧММ.dump
+
+# Восстановить последнюю копию
+docker compose -f .github/docker/docker-compose.yml exec -T postgres \
+  pg_restore -U yanpro -d yanpro --clean --if-exists < backups/yanpro-XXXX.dump
+```
 
 ### Вручную
 
@@ -316,6 +329,7 @@ yanpro-full/
 │       └── docker-compose.yml
 ├── scripts/
 │   ├── install.sh            — установка на новый сервер одной командой
+│   ├── backup-db.sh          — ежедневный бэкап БД (cron: 03:00, 7 копий)
 │   ├── deploy.sh             — скрипт для инициализации на сервере
 │   ├── update-apk.sh         — обновление APK водителя из GitHub Release
 │   └── dev.sh                — локальная разработка
