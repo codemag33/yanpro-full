@@ -26,17 +26,18 @@ chmod +x scripts/dev.sh
 
 ```bash
 # На вашем сервере
-git clone https://github.com/your-username/yanpro.git
-cd yanpro
-chmod +x scripts/deploy.sh
-./scripts/deploy.sh
+git clone https://github.com/codemag33/yanpro-full.git
+cd yanpro-full
+chmod +x scripts/install.sh
+./scripts/install.sh https://ваш-домен.ru
 
 # Скрипт:
 # 1. Проверит Docker
-# 2. Создаст .env с безопасными значениями
-# 3. Поднимет Postgres + Redis + Node.js
-# 4. Создаст админа и выведет пароль
-# 5. Проверит health
+# 2. Создаст .github/docker/.env с безопасными значениями
+# 3. Скачает APK водителя
+# 4. Поднимет Postgres + Redis + Node.js
+# 5. Создаст админа и выведет пароль
+# 6. Проверит health
 ```
 
 ### Вариант 2: GitHub Actions + Docker Registry (CI/CD)
@@ -67,7 +68,7 @@ yanpro-full/
 │   └── docker/               ├─ Dockerfile
 │                             └─ docker-compose.yml
 ├── scripts/
-│   ├── deploy.sh             ← Одна команда на сервер
+│   ├── install.sh            ← Одна команда на сервер
 │   └── dev.sh                └─ Локальная разработка
 └── docs/
     ├── DEPLOYMENT.md         ← Детальный гайд развёртывания
@@ -83,15 +84,15 @@ yanpro-full/
 
 ### На сервере
 ```bash
-./scripts/deploy.sh           # Инициализация + запуск
-docker-compose logs -f app    # Логи
-docker-compose restart app    # Перезагрузка
+./scripts/install.sh           # Установка + запуск
+docker compose -f .github/docker/docker-compose.yml logs -f app   # Логи
+docker compose -f .github/docker/docker-compose.yml restart app   # Перезагрузка
 ```
 
 ### Остановка/очистка
 ```bash
-docker-compose down           # Остановить все сервисы
-docker system prune -a        # Удалить образы (осторожно!)
+docker compose -f .github/docker/docker-compose.yml down   # Остановить все сервисы
+docker system prune -a                                     # Удалить образы (осторожно!)
 ```
 
 ## Ключевые фичи

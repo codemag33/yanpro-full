@@ -42,14 +42,111 @@ npm start
 curl http://localhost:3002/health
 ```
 
-## Развёртывание на сервер (Docker)
+## Развёртывание на новом сервере (Docker)
 
-### С Docker Compose
+Всё (PostgreSQL + PostGIS, Redis, бэкенд и собранные PWA-клиенты) поднимается через
+Docker Compose одной командой.
+
+### Требования
+- Linux-сервер (Ubuntu/Debian/CentOS), 2 ГБ RAM+
+- Docker + Docker Compose v2 (`docker compose version` — должен работать)
+
+### Установка (одна команда)
+
 ```bash
-docker-compose -f .github/docker/docker-compose.yml up -d
+git clone https://github.com/codemag33/yanpro-full.git
+cd yanpro-full
+
+# Аргумент — ваш будущий домен (для CORS). Можно без аргумента — будет https://localhost
+./scripts/install.sh https://taxi.example.ru
 ```
 
-Это поднимет PostgreSQL, Redis и приложение. Настройте переменные в `.env` перед запуском.
+Скрипт автоматически:
+1. Проверяет Docker
+2. Создаёт `.github/docker/.env` с сгенерированными паролями БД/Redis и JWT_SECRET
+3. Скачивает APK водителя из GitHub Release в `apk/`
+4. Собирает образ и запускает контейнеры (`docker compose up -d --build`)
+5. Ждёт готовности и создаёт администратора
+6. Выводит **логин/пароль админа** и адреса
+
+> ⚠️ Пароль администратора печатается один раз — сохраните его.
+
+### Вручную
+
+```bash
+git clone https://github.com/codemag33/yanpro-full.git && cd yanpro-full
+
+# Переменные окружения: compose читает .env из своей папки (.github/docker/.env)
+cat > .github/docker/.env <<EOF
+DB_PASSWORD=сложный_пароль
+REDIS_PASSWORD=сложный_пароль
+JWT_SECRET=длинная_случайная_строка
+CORS_ORIGIN=https://taxi.example.ru
+EOF
+
+# APK водителя (опционально, для /apk/yanpro-driver.apk)
+./scripts/update-apk.sh
+
+# Сборка и запуск
+docker compose -f .github/docker/docker-compose.yml up -d --build
+```
+
+### Nginx + HTTPS
+
+Приложение слушает порт `3002` (внутри контейнера). Наружу его выводит nginx с SSL:
+
+```nginx
+# .github/docker/nginx.conf — готовый шаблон (обновите server_name и пути к сертификатам)
+server {
+    listen 443 ssl;
+    server_name taxi.example.ru;
+    ssl_certificate     /etc/letsencrypt/live/taxi.example.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/taxi.example.ru/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:3002;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+server {
+    listen 80;
+    server_name taxi.example.ru;
+    return 301 https://$host$request_uri;
+}
+```
+
+```bash
+apt install -y nginx certbot python3-certbot-nginx
+certbot --nginx -d taxi.example.ru        # выпустит сертификат и пропишет в конфиг
+systemctl reload nginx
+```
+
+### Обновление после `git pull`
+
+```bash
+cd yanpro-full
+git pull
+docker compose -f .github/docker/docker-compose.yml up -d --build
+```
+
+### Полезные команды
+
+```bash
+docker compose -f .github/docker/docker-compose.yml logs -f app   # логи
+docker compose -f .github/docker/docker-compose.yml ps            # статус
+docker compose -f .github/docker/docker-compose.yml down          # остановить
+```
+
+### Структура контейнеров
+
+| Сервис | Назначение | Порт |
+|--------|-----------|------|
+| `app` | Node.js бэкенд + собранные PWA (`/passenger`, `/driver`, `/admin`), раздача APK (`/apk`) | 3002 (наружу) |
+| `postgres` | PostgreSQL + PostGIS, схема создаётся автоматически из `backend/db/schema.sql` | 127.0.0.1:5432 |
+| `redis` | Кэш и гео-индексы водителей | 127.0.0.1:6379 |
 
 ### Вручную (без Docker)
 1. Установите PostgreSQL, Redis, Node.js
@@ -161,22 +258,36 @@ yanpro-full/
 │       ├── Dockerfile        — образ бэкенда
 │       └── docker-compose.yml
 ├── scripts/
-│   └── deploy.sh             — скрипт для инициализации на сервере
+│   ├── install.sh            — установка на новый сервер одной командой
+│   ├── deploy.sh             — скрипт для инициализации на сервере
+│   ├── update-apk.sh         — обновление APK водителя из GitHub Release
+│   └── dev.sh                — локальная разработка
 └── docs/
     └── API.md                — документация
 ```
 
 ## Переменные окружения
 
-```bash
-# Backend (.env)
-PORT=3002
-DATABASE_URL=postgres://yanpro:password@localhost:5432/yanpro
-REDIS_URL=redis://localhost:6379
-JWT_SECRET=your-long-random-string
-JWT_EXPIRES_IN=30d
-CORS_ORIGIN=https://your-domain.example
-```
+Два файла (не путать):
+
+1. **`.github/docker/.env`** — для Docker Compose (продакшен). Обязательные:
+   ```bash
+   DB_PASSWORD=...            # пароль PostgreSQL
+   REDIS_PASSWORD=...         # пароль Redis
+   JWT_SECRET=...             # длинная случайная строка
+   CORS_ORIGIN=https://taxi.example.ru
+   ```
+   `scripts/install.sh` генерирует их автоматически.
+
+2. **`backend/.env`** — для локального запуска без Docker:
+   ```bash
+   PORT=3002
+   DATABASE_URL=postgres://yanpro:password@localhost:5432/yanpro
+   REDIS_URL=redis://localhost:6379
+   JWT_SECRET=your-long-random-string
+   JWT_EXPIRES_IN=30d
+   CORS_ORIGIN=https://your-domain.example
+   ```
 
 ## Проблемы и решения
 
