@@ -279,7 +279,11 @@ function connectSocket() {
   state.socket.on(EVENTS.RIDE_DRIVER_LOCATION, (data: any) => {
     placeMarker('driver', data.lat, data.lon);
   });
-  state.socket.on(EVENTS.RIDE_STARTED, () => renderRideState('in_progress', state.activeRide?.driverName));
+  state.socket.on(EVENTS.RIDE_STARTED, () => {
+    renderRideState('in_progress', state.activeRide?.driverName);
+    // ride:started пересоздаёт лист — не теряем уже полученное предложение цены
+    if (state.activeRide?.priceOffer) showPriceOffer(state.activeRide.priceOffer);
+  });
   state.socket.on(EVENTS.RIDE_PRICE_OFFERED, (data: any) => {
     if (!state.activeRide || state.activeRide.id !== data.rideId) return;
     state.activeRide.priceOffer = data.price;
@@ -368,21 +372,23 @@ if (navigator.geolocation) {
 /* ════════════════════════ ДЕЙСТВИЯ ════════════════════════ */
 export async function orderRide() {
   if (!state.pickup || !state.destination) return;
+  const p = state.pickup;
+  const d = state.destination;
 
-  // Показываем "Ищу маршрут..."
+  // Заказ отправляем сразу, не дожидаясь OSRM: бэкенд сам строит маршрут,
+  // а `/api/routing/route` нужен только для отрисовки на карте клиента.
+  // Иначе между "Ищем водителя..." и собой окажется await на сетевой запрос —
+  // пользователь успеет нажать "Отменить", но заказ всё равно создастся.
+  state.socket?.emit(EVENTS.RIDE_REQUEST, {
+    pickup: { lat: p.lat, lon: p.lon },
+    pickupAddress: p.address,
+    destination: { lat: d.lat, lon: d.lon },
+    destinationAddress: d.address,
+  });
   renderSheetSearching('ride');
 
-  // Получаем маршрут через OSRM
-  const route = await getAndDrawRoute(state.pickup.lat, state.pickup.lon, state.destination.lat, state.destination.lon);
-
-  // Отправляем заказ с маршрутом
-  state.socket?.emit(EVENTS.RIDE_REQUEST, {
-    pickup: { lat: state.pickup.lat, lon: state.pickup.lon },
-    pickupAddress: state.pickup.address,
-    destination: { lat: state.destination.lat, lon: state.destination.lon },
-    destinationAddress: state.destination.address,
-    route,
-  });
+  // Параллельно рисуем маршрут (бэкенд его не использует — только отображение)
+  getAndDrawRoute(p.lat, p.lon, d.lat, d.lon);
 }
 
 export function requestAssistance() {

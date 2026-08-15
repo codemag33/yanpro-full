@@ -19,6 +19,7 @@ function escapeHtml(s: string): string {
 
 export function renderSheetIdle() {
   if (state.activeRide || state.activeAssist) return; // не перерисовываем поверх активного состояния
+  if (state.searchRideId || state.searchAssistId) return; // идёт поиск — показываем состояние поиска, не idle
   sheet.classList.remove('hidden');
   const searchInput = document.getElementById('searchInput') as HTMLInputElement;
   searchInput.placeholder = state.mode === 'assist' ? 'Где нужна помощь?' : 'Куда едем?';

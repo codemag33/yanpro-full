@@ -58,7 +58,7 @@ export function initMap() {
   // Долгое нажатие / клик по карте — ручная установка точки (всегда доступно,
   // не только как запасной вариант при сбое геолокации).
   state.map.on('click', (e) => {
-    if (state.activeRide || state.activeAssist) return; // во время активной поездки клики по карте не меняют точки
+    if (state.activeRide || state.activeAssist || state.searchRideId || state.searchAssistId) return; // во время активной поездки/поиска клики не меняют точки
     const { lng, lat } = e.lngLat;
     if (state.mode === 'assist') setPickup(lat, lng); // в режиме помощи нужна только одна точка
     else if (!state.pickup) setPickup(lat, lng);
@@ -72,7 +72,7 @@ export function placeMarker(kind: string, lat: number, lon: number) {
   const el = document.createElement('div');
   el.className = kind === 'driver' ? 'driverMarker' : `pinMarker ${kind}`;
   if (kind === 'driver') el.textContent = '🚗';
-  const draggable = kind !== 'driver' && !state.activeRide && !state.activeAssist;
+  const draggable = kind !== 'driver' && !state.activeRide && !state.activeAssist && !state.searchRideId && !state.searchAssistId;
   const marker = new maplibregl.Marker({ element: el, draggable }).setLngLat([lon, lat]).addTo(state.map);
   if (draggable) {
     marker.on('dragend', () => {
