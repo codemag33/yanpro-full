@@ -45,7 +45,7 @@ async function loadRides() {
           <td>${new Date(r.finished_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</td>
           <td style="color:var(--muted);font-size:11px">${r.pickup_address?.substring(0, 20) || '--'}</td>
           <td style="color:var(--muted);font-size:11px">${r.destination_address?.substring(0, 20) || '--'}</td>
-          <td style="color:var(--y);font-weight:700">₽${r.price}</td>
+          <td style="color:var(--y);font-weight:700">₽${r.price ?? 0}</td>
         </tr>
       `)
       .join('');
@@ -56,13 +56,28 @@ async function loadRides() {
 
 async function loadChart() {
   try {
-    const res = await fetch(serverUrl + '/api/admin/rides-history?days=7', {
+    const daysCount = 7;
+    const res = await fetch(serverUrl + '/api/driver/earnings-history?days=' + daysCount, {
       headers: { Authorization: 'Bearer ' + token },
     });
     const data = await res.json();
+    if (!data || !Array.isArray(data.days)) return;
 
-    const labels = data.days.map((d: any) => new Date(d.date).toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' }));
-    const earnings = data.days.map((d: any) => d.earnings || 0);
+    // Сервер возвращает только дни с активностью — добиваем пустые дни нулями,
+    // чтобы график показывал ровно последние 7 дней.
+    const byDate: Record<string, number> = {};
+    data.days.forEach((d: any) => {
+      if (d.date) byDate[d.date.slice(0, 10)] = Number(d.earnings || 0);
+    });
+    const labels: string[] = [];
+    const earnings: number[] = [];
+    for (let i = daysCount - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      labels.push(d.toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' }));
+      earnings.push(byDate[key] || 0);
+    }
 
     const ctx = (document.getElementById('earningsChart') as HTMLCanvasElement).getContext('2d');
     new Chart(ctx, {

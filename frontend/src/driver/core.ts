@@ -58,12 +58,21 @@ export interface DriverState {
   earnings: { total: number; rides: number };
   backgrounded: boolean;
   bgRecoveryTimer: boolean;
+  cancellingRide: boolean;   // отменяем сами — игнорируем дубль-эхо и слова
+  cancellingAssist: boolean;
+  cancelTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export const state: DriverState = {
   serverUrl: localStorage.getItem('yanpro_driver_server_url') || window.location.origin,
   token: localStorage.getItem('yanpro_driver_token') || null,
-  user: JSON.parse(localStorage.getItem('yanpro_driver_user') || 'null'),
+  user: (() => {
+    try {
+      return JSON.parse(localStorage.getItem('yanpro_driver_user') || 'null');
+    } catch {
+      return null; // повреждённый localStorage не должен ронять приложение
+    }
+  })(),
   regRole: 'driver',
   socket: null,
   map: null,
@@ -82,6 +91,9 @@ export const state: DriverState = {
   earnings: { total: 0, rides: 0 },
   backgrounded: false,
   bgRecoveryTimer: false,
+  cancellingRide: false,
+  cancellingAssist: false,
+  cancelTimer: null,
 };
 
 export function isMechanic() {

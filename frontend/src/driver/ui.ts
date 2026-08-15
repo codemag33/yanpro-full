@@ -76,8 +76,8 @@ export function renderActiveRide() {
   sheet.innerHTML = `
     <div class="dragHandle"></div>
     <div class="passRow">
-      <div class="avatar">${r.name[0] || 'П'}</div>
-      <div class="passInfo"><div class="name">${r.name}</div><div class="role">${statusLabel}</div></div>
+      <div class="avatar">${(r.name || 'П')[0]}</div>
+      <div class="passInfo"><div class="name">${r.name || 'Пассажир'}</div><div class="role">${statusLabel}</div></div>
     </div>
     <div class="sheetAddr">📍 ${r.pickup.address || ''}</div>
     <div class="sheetAddr">🏁 ${r.destination.address || ''}</div>
@@ -92,7 +92,17 @@ export function renderActiveRide() {
   `;
   document.getElementById('btnChat').onclick = openChat;
   document.getElementById('btnCancel').onclick = () => {
-    state.socket?.emit(EVENTS.RIDE_CANCEL, { rideId: r.id, reason: 'driver_cancel' });
+    // Отмена не fire-and-forget: без соединения предупреждаем, а не «тихо отменяем» локально
+    if (!state.socket || !state.socket.connected) {
+      toast('Нет соединения — отмена не отправлена');
+      return;
+    }
+    state.cancellingRide = true; // собственное эхо ride:cancelled пропускаем
+    state.cancelTimer = setTimeout(() => {
+      state.cancellingRide = false;
+      state.cancelTimer = null;
+    }, 10000);
+    state.socket.emit(EVENTS.RIDE_CANCEL, { rideId: r.id, reason: 'driver_cancel' });
     resetRide();
   };
   document.getElementById('btnPrimary').onclick = () => {
@@ -137,7 +147,16 @@ export function renderActiveAssist() {
   `;
   document.getElementById('btnChat').onclick = openChat;
   document.getElementById('btnCancel').onclick = () => {
-    state.socket?.emit(EVENTS.ASSIST_CANCEL, { assistId: a.id });
+    if (!state.socket || !state.socket.connected) {
+      toast('Нет соединения — отмена не отправлена');
+      return;
+    }
+    state.cancellingAssist = true;
+    state.cancelTimer = setTimeout(() => {
+      state.cancellingAssist = false;
+      state.cancelTimer = null;
+    }, 10000);
+    state.socket.emit(EVENTS.ASSIST_CANCEL, { assistId: a.id });
     resetAssist();
   };
   document.getElementById('btnPrimary').onclick = () => showPriceModal('assist');
@@ -146,8 +165,15 @@ export function renderActiveAssist() {
 export function resetRide() {
   state.activeRide = null;
   state.chatContext = null;
-  Object.values(state.markers).forEach((m) => m && m.remove());
-  state.markers.passenger = null;
+  // Убираем только маркер пассажира — свой маркер остаётся на месте
+  if (state.markers.passenger) {
+    state.markers.passenger.remove();
+    state.markers.passenger = null;
+  }
+  if (state.cancelTimer) {
+    clearTimeout(state.cancelTimer);
+    state.cancelTimer = null;
+  }
   removeRouteLine();
   renderActiveRide();
 }
@@ -159,14 +185,37 @@ export function resetAssist() {
     state.markers.passenger.remove();
     state.markers.passenger = null;
   }
+  if (state.cancelTimer) {
+    clearTimeout(state.cancelTimer);
+    state.cancelTimer = null;
+  }
   removeRouteLine();
   renderActiveAssist();
 }
 
+// Управление флагом «мы сами отменяли»:
+// после эха с сервера сбрасываем флаг и таймер, чтобы водитель,
+// отменивший поездку сам, не считал эхо «неожиданной отменой» и не сбрасывал UI дважды.
+export function cancelCancelGuard() {
+  if (state.cancelTimer) {
+    clearTimeout(state.cancelTimer);
+    state.cancelTimer = null;
+  }
+  state.cancellingRide = false;
+  state.cancellingAssist = false;
+}
+
 /* ─── Чат ───────────────────────────────────────────────────────────────── */
+// Дедупликация сообщений: live-CHAT_MESSAGE может прийти одновременно
+// с историей и без id в протоколе — ключ = время+отправитель+текст.
+const chatSeen = new Set<string>();
+export function clearChatSeen() {
+  chatSeen.clear();
+}
 export function openChat() {
   document.getElementById('chatOverlay').classList.remove('hidden');
   document.getElementById('chatMessages').innerHTML = '';
+  chatSeen.clear();
   document.getElementById('chatPeerName').textContent = state.activeRide?.name || state.activeAssist?.name || 'Пассажир';
   if (state.chatContext) state.socket?.emit(EVENTS.CHAT_HISTORY, state.chatContext);
 }
@@ -181,6 +230,9 @@ export function sendChat() {
 
 export function appendChatMessage(m: any) {
   const box = document.getElementById('chatMessages');
+  const key = `${m.createdAt ?? ''}|${m.senderId ?? ''}|${m.text ?? ''}`;
+  if (chatSeen.has(key)) return;
+  chatSeen.add(key);
   const div = document.createElement('div');
   div.className = 'msg ' + (m.senderId === state.user?.id ? 'mine' : 'theirs');
   div.textContent = m.text;

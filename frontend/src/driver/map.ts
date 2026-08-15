@@ -240,6 +240,8 @@ export function clearPendingMarkers(kind: 'ride' | 'assist') {
 
 export function addPendingMarker(kind: 'ride' | 'assist', data: { id: string; lat: number; lon: number }) {
   if (!state.map) return;
+  // защита от дублей: если маркер с таким id уже на карте — не рисуем второй
+  if (state.pendingMarkers.some((m) => m.kind === kind && m.id === data.id)) return;
   const marker = new maplibregl.Marker({ element: makePendingMarkerEl(kind, data.id) })
     .setLngLat([data.lon, data.lat])
     .addTo(state.map);

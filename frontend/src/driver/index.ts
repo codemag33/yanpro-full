@@ -26,6 +26,8 @@ import {
   drawRouteToDestination,
   drawRouteToAssist,
   appendChatMessage,
+  clearChatSeen,
+  cancelCancelGuard,
 } from './ui';
 
 const api = createApi(state);
@@ -320,6 +322,7 @@ function connectSocket() {
       routeToDest: null,
     };
     state.chatContext = { contextType: 'ride', contextId: ride.id };
+    placeMarker('passenger', ride.pickup_lat, ride.pickup_lon, '🧍');
     renderActiveRide();
     if (ride.status === 'accepted') drawRouteToPickup();
     else if (ride.status === 'in_progress') drawRouteToDestination();
@@ -338,6 +341,9 @@ function connectSocket() {
       routeToPickup: null,
     };
     state.chatContext = { contextType: 'assist', contextId: a.id };
+    if (typeof a.pickup_lat === 'number' && typeof a.pickup_lon === 'number') {
+      placeMarker('passenger', a.pickup_lat, a.pickup_lon, '🧍');
+    }
     renderActiveAssist();
     if (a.status === 'accepted') drawRouteToAssist();
   });
@@ -358,12 +364,17 @@ function connectSocket() {
       drawDirectLineOnMap(data.pickup.lat, data.pickup.lon, data.destination.lat, data.destination.lon);
     }
   });
-  state.socket.on(EVENTS.RIDE_ALREADY_TAKEN, () => {
-    if (state.pendingRequest) dismissIncomingRequest();
-    toast('Заказ уже занят другим водителем');
+  state.socket.on(EVENTS.RIDE_ALREADY_TAKEN, (data: any) => {
+    const had = state.pendingRequest?.rideId === data.rideId || state.requestQueue.some((q) => q.kind === 'ride' && q.rideId === data.rideId);
+    if (state.pendingRequest?.rideId === data.rideId) dismissIncomingRequest(false);
+    state.requestQueue = state.requestQueue.filter((q) => q.kind !== 'ride' || q.rideId !== data.rideId);
+    if (had) toast('Заказ уже занят другим водителем');
   });
   state.socket.on(EVENTS.RIDE_CLOSED_FOR_OTHERS, (data: any) => {
-    if (state.pendingRequest?.rideId === data.rideId) dismissIncomingRequest();
+    const had = state.pendingRequest?.rideId === data.rideId || state.requestQueue.some((q) => q.kind === 'ride' && q.rideId === data.rideId);
+    if (state.pendingRequest?.rideId === data.rideId) dismissIncomingRequest(false);
+    state.requestQueue = state.requestQueue.filter((q) => q.kind !== 'ride' || q.rideId !== data.rideId);
+    if (had) toast('Заказ закрыт другим водителем');
   });
   state.socket.on(EVENTS.RIDE_ACCEPTED, (data: any) => {
     // Наш собственный accept подтверждён сервером
@@ -385,6 +396,13 @@ function connectSocket() {
     resetRide();
   });
   state.socket.on(EVENTS.RIDE_CANCELLED, (data: any) => {
+    if (state.cancellingRide) {
+      // эхо нашей собственной отмены — UI уже сброшен при клике
+      cancelCancelGuard();
+      return;
+    }
+    // Отменена именно наша активная поездка (таймаут поиска и т.п. нас не касается)
+    if (!state.activeRide || state.activeRide.id !== data.rideId) return;
     toast(data.by === 'passenger' ? 'Пассажир отменил поездку' : 'Поездка отменена');
     resetRide();
   });
@@ -400,12 +418,17 @@ function connectSocket() {
     }
     showIncomingRequest('assist', data);
   });
-  state.socket.on(EVENTS.ASSIST_ALREADY_TAKEN, () => {
-    if (state.pendingRequest) dismissIncomingRequest();
-    toast('Заявку уже принял другой мастер');
+  state.socket.on(EVENTS.ASSIST_ALREADY_TAKEN, (data: any) => {
+    const had = state.pendingRequest?.assistId === data.assistId || state.requestQueue.some((q) => q.kind === 'assist' && q.assistId === data.assistId);
+    if (state.pendingRequest?.assistId === data.assistId) dismissIncomingRequest(false);
+    state.requestQueue = state.requestQueue.filter((q) => q.kind !== 'assist' || q.assistId !== data.assistId);
+    if (had) toast('Заявку уже принял другой мастер');
   });
   state.socket.on(EVENTS.ASSIST_CLOSED_FOR_OTHERS, (data: any) => {
-    if (state.pendingRequest?.assistId === data.assistId) dismissIncomingRequest();
+    const had = state.pendingRequest?.assistId === data.assistId || state.requestQueue.some((q) => q.kind === 'assist' && q.assistId === data.assistId);
+    if (state.pendingRequest?.assistId === data.assistId) dismissIncomingRequest(false);
+    state.requestQueue = state.requestQueue.filter((q) => q.kind !== 'assist' || q.assistId !== data.assistId);
+    if (had) toast('Заявку закрыл другой мастер');
   });
   state.socket.on(EVENTS.ASSIST_ACCEPTED, () => {
     if (state.activeAssist) {
@@ -419,6 +442,11 @@ function connectSocket() {
     resetAssist();
   });
   state.socket.on(EVENTS.ASSIST_CANCELLED, (data: any) => {
+    if (state.cancellingAssist) {
+      cancelCancelGuard();
+      return;
+    }
+    if (!state.activeAssist || state.activeAssist.id !== data.assistId) return;
     toast(data.by === 'passenger' ? 'Пассажир отменил заявку' : 'Заявка отменена');
     resetAssist();
   });
@@ -428,6 +456,7 @@ function connectSocket() {
   state.socket.on(EVENTS.CHAT_MESSAGE, (m: any) => appendChatMessage(m));
   state.socket.on(EVENTS.CHAT_HISTORY, (data: any) => {
     document.getElementById('chatMessages').innerHTML = '';
+    clearChatSeen();
     data.messages.forEach(appendChatMessage);
   });
 

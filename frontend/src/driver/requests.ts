@@ -2,10 +2,21 @@
 // правый клик по маркеру — взять сразу, общий accept.
 import { state, type IncomingRequest } from './core';
 import { EVENTS } from '../shared/protocol';
-import { placeMarker } from './map';
+import { placeMarker, removeRouteLine } from './map';
 import { toast, renderActiveRide, renderActiveAssist, drawRouteToPickup, drawRouteToAssist } from './ui';
 
 export const REQUEST_TTL_MS = 30000;
+
+// Безопасное отображение координат: сервер может прислать джанк/без pickup
+function coordLabel(pickup: any): string {
+  if (pickup && typeof pickup.lat === 'number' && typeof pickup.lon === 'number') {
+    return pickup.lat.toFixed(5) + ', ' + pickup.lon.toFixed(5);
+  }
+  return '';
+}
+function addrLabel(address: string | undefined, pickup: any): string {
+  return address || coordLabel(pickup) || 'Адрес неизвестен';
+}
 
 export function showIncomingRequest(kind: 'ride' | 'assist', data: any) {
   state.pendingRequest = { kind, ...data } as IncomingRequest;
@@ -17,8 +28,8 @@ export function showIncomingRequest(kind: 'ride' | 'assist', data: any) {
     card.innerHTML = `
       <div id="timerBar"><div id="timerFill"></div></div>
       <div class="reqBadge">НОВЫЙ ЗАКАЗ</div>
-      <div class="reqName">${data.passengerName}</div>
-      <div class="addrRow"><div class="dot pickup"></div><div class="addrText">${data.pickupAddress || (data.pickup.lat.toFixed(5) + ', ' + data.pickup.lon.toFixed(5))}</div></div>
+      <div class="reqName">${data.passengerName || 'Пассажир'}</div>
+      <div class="addrRow"><div class="dot pickup"></div><div class="addrText">${addrLabel(data.pickupAddress, data.pickup)}</div></div>
       <div class="addrRow"><div class="dot dest"></div><div class="addrText">${data.destinationAddress || ''}</div></div>
       <div class="reqActions">
         <button class="btnDecline" id="btnDeclineReq">Пропустить</button>
@@ -35,9 +46,9 @@ export function showIncomingRequest(kind: 'ride' | 'assist', data: any) {
     card.innerHTML = `
       <div id="timerBar"><div id="timerFill"></div></div>
       <div class="reqBadge" style="background:#3DCC6E;">ПОМОЩЬ НА ДОРОГЕ</div>
-      <div class="reqName">${data.passengerName}</div>
+      <div class="reqName">${data.passengerName || 'Пассажир'}</div>
       <div class="reqMeta">${typeLabels[data.breakdownType] || data.breakdownType || ''}${data.carMake ? ' · ' + data.carMake : ''}</div>
-      <div class="addrRow"><div class="dot pickup"></div><div class="addrText">${(data.pickupAddress || (data.pickup.lat.toFixed(5) + ', ' + data.pickup.lon.toFixed(5)))}</div></div>
+      <div class="addrRow"><div class="dot pickup"></div><div class="addrText">${addrLabel(data.pickupAddress, data.pickup)}</div></div>
       <div class="reqActions">
         <button class="btnDecline" id="btnDeclineReq">Пропустить</button>
         <button class="btnAccept" id="btnAcceptReq">Принять</button>
@@ -45,7 +56,7 @@ export function showIncomingRequest(kind: 'ride' | 'assist', data: any) {
   }
 
   document.getElementById('btnAcceptReq').onclick = acceptIncomingRequest;
-  document.getElementById('btnDeclineReq').onclick = dismissIncomingRequest;
+  document.getElementById('btnDeclineReq').onclick = () => dismissIncomingRequest(true);
 
   let remaining = REQUEST_TTL_MS;
   const fill = document.getElementById('timerFill');
@@ -53,17 +64,22 @@ export function showIncomingRequest(kind: 'ride' | 'assist', data: any) {
   requestAnimationFrame(() => {
     fill.style.width = '0%';
   });
-  state.countdownTimer = setTimeout(dismissIncomingRequest, REQUEST_TTL_MS);
+  state.countdownTimer = setTimeout(() => dismissIncomingRequest(true), REQUEST_TTL_MS);
 }
 
-export function dismissIncomingRequest() {
+// recordSkip=true — пишем в журнал «пропущенных» (ручной пропуск/таймаут).
+// false — карточку закрыла система (занял другой, закрылась для других) — журнал не засоряем.
+export function dismissIncomingRequest(recordSkip = true) {
   clearTimeout(state.countdownTimer);
   if (state.pendingRequest) {
     const req = state.pendingRequest;
-    if (req.kind === 'ride') state.socket?.emit(EVENTS.RIDE_SKIP, { rideId: req.rideId });
-    else state.socket?.emit(EVENTS.ASSIST_SKIP, { assistId: req.assistId });
+    if (recordSkip) {
+      if (req.kind === 'ride') state.socket?.emit(EVENTS.RIDE_SKIP, { rideId: req.rideId });
+      else state.socket?.emit(EVENTS.ASSIST_SKIP, { assistId: req.assistId });
+    }
   }
   state.pendingRequest = null;
+  removeRouteLine(); // убираем линию-превью заявки с карты
   document.getElementById('requestCard').classList.add('hidden');
   // Показать следующий из очереди
   if (state.requestQueue.length > 0 && !state.activeRide && !state.activeAssist) {
@@ -71,6 +87,8 @@ export function dismissIncomingRequest() {
     setTimeout(() => showIncomingRequest(next.kind, next), 300);
   }
 }
+
+// Убирает заявку из очереди (занята/закрыта, пока ждала)
 
 function acceptIncomingRequest() {
   const req = state.pendingRequest;
@@ -129,32 +147,38 @@ export function takeRequestDirect(kind: 'ride' | 'assist', id: string) {
   const payload = kind === 'assist' ? { assistId: id } : { rideId: id };
   const reqEventName = kind === 'assist' ? EVENTS.ASSIST_NEW_REQUEST : EVENTS.RIDE_NEW_REQUEST;
   state.directTake = { kind, id };
-  // Слушаем ответ ДО отправки, чтобы не пропустить событие
-  const waitMatch = (resolve: (d: any) => void) => {
-    state.socket?.once(reqEventName, (data: any) => {
-      if ((kind === 'assist' ? data.assistId : data.rideId) === id) resolve(data);
-      else waitMatch(resolve);
-    });
+
+  // Один раз слушаем ответ; onReq/финиш — единственный владелец листенера,
+  // чтобы не копить socket.once (старый обработчик мог сработать повторно
+  // по той же заявке, если та успела вернуться).
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    state.directTake = null;
+    state.socket.off(reqEventName, onReq);
   };
-  const incoming = new Promise<any>((r) => waitMatch(r));
+  const onReq = (data: any) => {
+    if ((kind === 'assist' ? data.assistId : data.rideId) !== id) return;
+    finish();
+    acceptRequestData({ kind, ...data });
+  };
+  state.socket.on(reqEventName, onReq);
   state.socket.emit(ev, payload, (res: any) => {
-    if (res && res.ok === false) {
-      state.directTake = null;
-      toast(res.error === 'taken' ? 'Заявку уже взяли' : 'Не удалось взять заявку');
+    if (!res || res.ok === false) {
+      if (done) return;
+      toast(res?.error === 'taken' ? 'Заявку уже взяли' : 'Не удалось взять заявку');
+      finish();
     }
   });
-  incoming.then((data) => {
-    state.directTake = null;
-    if (data) acceptRequestData({ kind, ...data });
-  });
-  setTimeout(() => {
-    if (state.directTake && state.directTake.id === id) state.directTake = null;
-  }, 15000);
+  // Страховка: если сервер вообще не ответил — освобождаем подписку
+  setTimeout(finish, 15000);
 }
 
 // Принятие заявки (общее для карточки и правой кнопки мыши)
 export function acceptRequestData(req: IncomingRequest) {
-  state.requestQueue = [];
+  // Убираем из очереди только принятую заявку — остальные живые предложения не теряем
+  state.requestQueue = state.requestQueue.filter((q) => !(q.rideId && q.rideId === req.rideId) && !(q.assistId && q.assistId === req.assistId));
   if (req.kind === 'ride') {
     state.socket?.emit(EVENTS.RIDE_ACCEPT, { rideId: req.rideId });
     state.activeRide = {
@@ -167,8 +191,10 @@ export function acceptRequestData(req: IncomingRequest) {
       routeToDest: null,
     };
     state.chatContext = { contextType: 'ride', contextId: req.rideId };
-    placeMarker('passenger', req.pickup.lat, req.pickup.lon, '🧍');
-    state.map?.flyTo({ center: [req.pickup.lon, req.pickup.lat], zoom: 15 });
+    if (req.pickup) {
+      placeMarker('passenger', req.pickup.lat, req.pickup.lon, '🧍');
+      state.map?.flyTo({ center: [req.pickup.lon, req.pickup.lat], zoom: 15 });
+    }
     renderActiveRide();
     drawRouteToPickup();
   } else {
@@ -186,8 +212,10 @@ export function acceptRequestData(req: IncomingRequest) {
       routeToPickup: null,
     };
     state.chatContext = { contextType: 'assist', contextId: req.assistId };
-    placeMarker('passenger', req.pickup.lat, req.pickup.lon, '🧍');
-    state.map?.flyTo({ center: [req.pickup.lon, req.pickup.lat], zoom: 15 });
+    if (req.pickup) {
+      placeMarker('passenger', req.pickup.lat, req.pickup.lon, '🧍');
+      state.map?.flyTo({ center: [req.pickup.lon, req.pickup.lat], zoom: 15 });
+    }
     renderActiveAssist();
     drawRouteToAssist();
   }
