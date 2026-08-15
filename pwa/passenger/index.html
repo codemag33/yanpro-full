@@ -10,7 +10,6 @@
 <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script src="/pwa/connection-manager.js"></script>
 <style>
   :root{
     --green:#0F9D58; --green-dark:#0B7A43; --bg:#F4F6F5; --card:#FFFFFF;
@@ -141,7 +140,7 @@
 <div id="toast"></div>
 
 <!-- ═══════════════ МЕНЮ ═══════════════ -->
-<div id="menuOverlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:40;" onclick="this.classList.add('hidden')"></div>
+<div id="menuOverlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:40;" onclick="closeMenu()"></div>
 <div id="menuCard" class="hidden" style="position:fixed;bottom:0;left:0;right:0;background:var(--card);border-radius:20px 20px 0 0;padding:16px 16px calc(16px+env(safe-area-inset-bottom));z-index:41;box-shadow:var(--shadow);">
   <div style="width:36px;height:4px;background:#DDD;border-radius:2px;margin:0 auto 14px;"></div>
   <div id="menuUserInfo" style="padding:0 0 14px;border-bottom:1px solid #F0F0F0;font-size:15px;font-weight:600;"></div>
@@ -176,10 +175,16 @@ const state = {
   pickup: null,       // {lat, lon, address}
   destination: null,  // {lat, lon, address}
   mode: 'ride',        // 'ride' | 'assist'
+  searchRideId: null,   // id поездки, пока ищем водителя (для отмены на сервере)
+  searchAssistId: null, // id заявки, пока ищем мастера
   activeRide: null,
   activeAssist: null,
   chatContext: null,   // {contextType, contextId}
   geoWatchId: null,
+  connStatus: null,    // 'online' | 'offline' | null
+  cancellingRide: false,   // отменяем сами — игнорируем эхо ride:cancelled
+  cancellingAssist: false, // отменяем сами — игнорируем эхо assistance:cancelled
+  priceOfferTimer: null,
 };
 
 function toast(msg) {
@@ -364,7 +369,8 @@ function initMap() {
   state.map.on('click', (e) => {
     if (state.activeRide || state.activeAssist) return; // во время активной поездки клики по карте не меняют точки
     const { lng, lat } = e.lngLat;
-    if (!state.pickup) setPickup(lat, lng);
+    if (state.mode === 'assist') setPickup(lat, lng); // в режиме помощи нужна только одна точка
+    else if (!state.pickup) setPickup(lat, lng);
     else setDestination(lat, lng);
   });
 }
@@ -461,7 +467,8 @@ document.getElementById('searchInput').oninput = (e) => {
           box.classList.add('hidden');
           document.getElementById('searchInput').value = '';
           state.map.flyTo({ center: [r.lon, r.lat], zoom: 15 });
-          if (!state.pickup) { setPickup(r.lat, r.lon); }
+          if (state.mode === 'assist') setPickup(r.lat, r.lon);
+          else if (!state.pickup) { setPickup(r.lat, r.lon); }
           else { state.destination = { lat: r.lat, lon: r.lon, address: r.address }; placeMarker('dest', r.lat, r.lon); renderSheetIdle(); }
         };
         box.appendChild(div);
@@ -496,24 +503,32 @@ function connectSocket() {
     else updateConn('connecting');
   });
   state.socket.on('connect', () => {
-    if (!state.backgrounded) toast('Подключено к серверу');
+    // Тост показываем только при восстановлении после реального обрыва,
+    // а не при каждом (авто)реконнекте на нестабильной сети.
+    if (state.connStatus === 'offline' && !state.backgrounded) toast('Соединение восстановлено');
+    state.connStatus = 'online';
     updateConn('online');
   });
   state.socket.on('disconnect', () => {
+    state.connStatus = 'offline';
     if (!state.backgrounded) updateConn('offline');
   });
 
   state.socket.on('session:restore_ride', (ride) => {
-    state.activeRide = ride; renderRideState(ride.status);
+    state.activeRide = ride; renderRideState(ride.status, ride.driver_name);
     state.chatContext = { contextType: 'ride', contextId: ride.id };
   });
   state.socket.on('session:restore_assist', (a) => {
-    state.activeAssist = a; renderAssistState(a.status);
+    state.activeAssist = a; renderAssistState(a.status, a.mechanic_name);
     state.chatContext = { contextType: 'assist', contextId: a.id };
   });
 
-  state.socket.on('ride:created', () => renderSheetSearching('ride'));
+  state.socket.on('ride:created', (data) => {
+    state.searchRideId = data?.rideId || null; // запоминаем id, чтобы можно было отменить поиск на сервере
+    renderSheetSearching('ride');
+  });
   state.socket.on('ride:accepted', (data) => {
+    state.searchRideId = null;
     state.activeRide = { ...(state.activeRide || {}), id: data.rideId, driver_id: data.driverId, driverName: data.driverName };
     state.chatContext = { contextType: 'ride', contextId: data.rideId };
     toast(`Водитель ${data.driverName} принял заказ`);
@@ -523,17 +538,28 @@ function connectSocket() {
   state.socket.on('ride:driver_location', (data) => {
     placeMarker('driver', data.lat, data.lon);
   });
-  state.socket.on('ride:started', () => renderRideState('in_progress'));
+  state.socket.on('ride:started', () => renderRideState('in_progress', state.activeRide?.driverName));
   state.socket.on('ride:price_offered', (data) => {
     if (!state.activeRide || state.activeRide.id !== data.rideId) return;
+    state.activeRide.priceOffer = data.price;
     showPriceOffer(data.price);
     toast(`Водитель предлагает цену ${data.price} ₽`);
   });
   state.socket.on('ride:finished', () => { toast('Поездка завершена'); resetRide(); });
-  state.socket.on('ride:cancelled', (data) => { toast(data.by === 'driver' ? 'Водитель отменил поездку' : 'Поездка отменена'); resetRide(); });
+  state.socket.on('ride:cancelled', (data) => {
+    if (state.cancellingRide) { state.cancellingRide = false; return; } // отменяли сами — состояние уже сброшено
+    toast(data.by === 'driver' ? 'Водитель отменил поездку'
+      : data.reason === 'timeout' ? 'Время ожидания водителя истекло'
+      : 'Поездка отменена');
+    resetRide();
+  });
 
-  state.socket.on('assistance:created', () => renderSheetSearching('assist'));
+  state.socket.on('assistance:created', (data) => {
+    state.searchAssistId = data?.assistId || null;
+    renderSheetSearching('assist');
+  });
   state.socket.on('assistance:accepted', (data) => {
+    state.searchAssistId = null;
     state.activeAssist = { ...(state.activeAssist || {}), id: data.assistId, mechanic_id: data.mechanicId, mechanicName: data.mechanicName };
     state.chatContext = { contextType: 'assist', contextId: data.assistId };
     toast(`Мастер ${data.mechanicName} выехал`);
@@ -542,7 +568,11 @@ function connectSocket() {
   state.socket.on('assistance:already_taken', () => toast('Заявку уже принял другой мастер'));
   state.socket.on('assistance:driver_location', (data) => placeMarker('driver', data.lat, data.lon));
   state.socket.on('assistance:finished', () => { toast('Мастер завершил работу'); resetAssist(); });
-  state.socket.on('assistance:cancelled', (data) => { toast(data.by === 'mechanic' ? 'Мастер отменил заявку' : 'Заявка отменена'); resetAssist(); });
+  state.socket.on('assistance:cancelled', (data) => {
+    if (state.cancellingAssist) { state.cancellingAssist = false; return; }
+    toast(data.by === 'mechanic' ? 'Мастер отменил заявку' : 'Заявка отменена');
+    resetAssist();
+  });
 
   state.socket.on('chat:message', (m) => appendChatMessage(m));
   state.socket.on('chat:history', (data) => {
@@ -550,7 +580,11 @@ function connectSocket() {
     data.messages.forEach(appendChatMessage);
   });
 
-  state.socket.on('error:server', (e) => console.warn('server error', e));
+  state.socket.on('error:server', (e) => {
+    console.warn('server error', e);
+    if (e?.context === 'ride:request') { toast('Не удалось создать заказ — попробуйте ещё раз'); renderSheetIdle(); }
+    else if (e?.context === 'assistance:request') { toast('Не удалось создать заявку — попробуйте ещё раз'); renderSheetIdle(); }
+  });
 }
 
 function sendLocationUpdate(lat, lon) {
@@ -561,9 +595,12 @@ function sendLocationUpdate(lat, lon) {
   state.socket.emit('location:update', payload);
 }
 // Пассажир тоже периодически шлёт своё местоположение — полезно для точного пикапа,
-// не мешает водителям (водители видны через отдельный geo-набор на сервере).
+// но только пока есть активная поездка/заявка, чтобы не тратить трафик в простое.
 navigator.geolocation && navigator.geolocation.watchPosition(
-  (pos) => sendLocationUpdate(pos.coords.latitude, pos.coords.longitude),
+  (pos) => {
+    if (!state.activeRide && !state.activeAssist) return;
+    sendLocationUpdate(pos.coords.latitude, pos.coords.longitude);
+  },
   () => {}, { enableHighAccuracy: false, maximumAge: 15000, timeout: 10000 }
 );
 
@@ -572,6 +609,11 @@ navigator.geolocation && navigator.geolocation.watchPosition(
 function renderSheetIdle() {
   if (state.activeRide || state.activeAssist) return; // не перерисовываем поверх активного состояния
   sheet.classList.remove('hidden');
+  document.getElementById('searchInput').placeholder = state.mode === 'assist' ? 'Где нужна помощь?' : 'Куда едем?';
+  if (state.mode === 'assist' && state.destination) { // точка Б не нужна в режиме помощи
+    state.destination = null;
+    if (state.markers.dest) { state.markers.dest.remove(); state.markers.dest = null; }
+  }
   const pickupText = state.pickup?.address || (state.pickup ? 'Определяем адрес...' : 'Точка не выбрана — коснитесь карты');
   const destText = state.destination?.address || (state.destination ? 'Определяем адрес...' : 'Куда едем?');
 
@@ -604,8 +646,9 @@ function renderSheetIdle() {
         <option value="other">Другое</option>
       </select>
       <input id="carMake" placeholder="Марка автомобиля">
-      <input id="phoneField" type="tel" placeholder="Телефон для связи">
+      <input id="phoneField" type="tel" placeholder="Телефон для связи" value="${((state.user?.phone || '').replace(/"/g, '&quot;'))}">
       <textarea id="descField" placeholder="Опишите проблему"></textarea>
+      <div class="hint">Телефон обязателен — мастер должен суметь с вами связаться.</div>
       <button class="primaryBtn" id="btnAssist" ${!state.pickup ? 'disabled' : ''}>Вызвать мастера</button>
     `;
     document.getElementById('btnAssist').onclick = requestAssistance;
@@ -665,17 +708,17 @@ function renderRideState(status, driverName) {
 // ─── Торг ценой: пассажир видит предложение водителя ────────────────────
 function acceptPriceOffer() {
   const rideId = state.activeRide?.id;
+  const price = state.activeRide?.priceOffer;
   if (!rideId) return;
-  const amount = document.getElementById('priceOfferAmount').textContent;
   state.socket.emit('ride:price_offer_accept', { rideId });
-  document.getElementById('priceOfferBox').classList.add('hidden');
-  toast(`Цена ${amount} принята`);
+  hidePriceOffer();
+  if (price) toast(`Цена ${price} ₽ принята`);
 }
 function rejectPriceOffer() {
   const rideId = state.activeRide?.id;
   if (!rideId) return;
   state.socket.emit('ride:price_offer_reject', { rideId });
-  document.getElementById('priceOfferBox').classList.add('hidden');
+  hidePriceOffer();
   toast('Вы отклонили предложенную цену');
 }
 function showPriceOffer(price) {
@@ -683,6 +726,18 @@ function showPriceOffer(price) {
   if (!box) return;
   document.getElementById('priceOfferAmount').textContent = `${price} ₽`;
   box.classList.remove('hidden');
+  // Если пассажир не ответит за минуту — предложение снимается автоматически
+  clearTimeout(state.priceOfferTimer);
+  state.priceOfferTimer = setTimeout(() => {
+    rejectPriceOffer();
+    toast('Предложение цены истекло');
+  }, 60000);
+}
+function hidePriceOffer() {
+  clearTimeout(state.priceOfferTimer);
+  state.priceOfferTimer = null;
+  const box = document.getElementById('priceOfferBox');
+  if (box) box.classList.add('hidden');
 }
 
 function renderAssistState(status, mechanicName) {
@@ -779,34 +834,56 @@ function requestAssistance() {
   const carMake = document.getElementById('carMake').value.trim();
   const phone = document.getElementById('phoneField').value.trim();
   const description = document.getElementById('descField').value.trim();
+  if (!phone) { toast('Укажите телефон для связи'); document.getElementById('phoneField').focus(); return; }
   state.socket.emit('assistance:request', {
     pickup: { lat: state.pickup.lat, lon: state.pickup.lon },
+    pickupAddress: state.pickup.address,
     breakdownType, carMake, phone, description,
   });
   renderSheetSearching('assist');
 }
 
 function cancelRide(reason) {
-  if (!state.activeRide && !state.socket) return;
-  const rideId = state.activeRide?.id;
-  if (rideId) state.socket.emit('ride:cancel', { rideId, reason });
-  resetRide();
+  const rideId = state.activeRide?.id || state.searchRideId;
+  if (!rideId || !state.socket) return;
+  state.cancellingRide = true;
+  state.socket.emit('ride:cancel', { rideId, reason });
+  setTimeout(() => { state.cancellingRide = false; }, 4000);
+  cancelCleanup('ride');
 }
 function cancelAssistance() {
-  const assistId = state.activeAssist?.id;
-  if (assistId) state.socket.emit('assistance:cancel', { assistId });
-  resetAssist();
+  const assistId = state.activeAssist?.id || state.searchAssistId;
+  if (!assistId || !state.socket) return;
+  state.cancellingAssist = true;
+  state.socket.emit('assistance:cancel', { assistId });
+  setTimeout(() => { state.cancellingAssist = false; }, 4000);
+  cancelCleanup('assist');
+}
+// Отмена по инициативе пассажира: возвращаемся к idle-экрану,
+// НО сохраняем точки А/Б — пользователь может просто повторить заказ.
+function cancelCleanup(kind) {
+  state.searchRideId = null;
+  state.searchAssistId = null;
+  state.chatContext = null;
+  if (kind === 'ride') state.activeRide = null;
+  else state.activeAssist = null;
+  Object.values(state.markers).forEach((m) => m && m.remove());
+  state.markers = { pickup: null, dest: null, driver: null };
+  // Перерисовываем маркеры точек из сохранённого state.pickup/destination
+  if (state.pickup) placeMarker('pickup', state.pickup.lat, state.pickup.lon);
+  if (state.destination) placeMarker('dest', state.destination.lat, state.destination.lon);
+  renderSheetIdle();
 }
 
 function resetRide() {
-  state.activeRide = null; state.chatContext = null;
+  state.activeRide = null; state.chatContext = null; state.searchRideId = null; state.cancellingRide = false;
   state.pickup = null; state.destination = null;
   Object.values(state.markers).forEach((m) => m && m.remove());
   state.markers = { pickup: null, dest: null, driver: null };
   renderSheetIdle();
 }
 function resetAssist() {
-  state.activeAssist = null; state.chatContext = null;
+  state.activeAssist = null; state.chatContext = null; state.searchAssistId = null; state.cancellingAssist = false;
   state.pickup = null;
   Object.values(state.markers).forEach((m) => m && m.remove());
   state.markers = { pickup: null, dest: null, driver: null };
@@ -819,7 +896,13 @@ function openChat() {
   document.getElementById('chatMessages').innerHTML = '';
   document.getElementById('chatPeerName').textContent =
     state.activeRide?.driverName || state.activeAssist?.mechanicName || (state.activeRide ? 'Водитель' : 'Мастер');
-  if (state.chatContext) state.socket.emit('chat:history', state.chatContext);
+  // Контекст чата берём из текущей активной поездки/заявки, а не из сохранённого
+  // — это надёжно работает и после восстановления сессии.
+  const ctx = state.activeRide ? { contextType: 'ride', contextId: state.activeRide.id }
+            : state.activeAssist ? { contextType: 'assist', contextId: state.activeAssist.id }
+            : null;
+  state.chatContext = ctx;
+  if (ctx) state.socket.emit('chat:history', ctx);
 }
 document.getElementById('chatBack').onclick = () => document.getElementById('chatOverlay').classList.add('hidden');
 document.getElementById('chatSend').onclick = sendChat;
@@ -841,7 +924,11 @@ function appendChatMessage(m) {
   box.scrollTop = box.scrollHeight;
 }
 
-/* ════════════════════════ ВЫХОД ════════════════════════ */
+/* ════════════════════════ ВЫХОД / МЕНЮ ════════════════════════ */
+function closeMenu() {
+  document.getElementById('menuOverlay').classList.add('hidden');
+  document.getElementById('menuCard').classList.add('hidden');
+}
 function logout() {
   localStorage.removeItem('yanpro_token'); localStorage.removeItem('yanpro_user');
   location.reload();
@@ -853,10 +940,16 @@ document.getElementById('btnMenu').onclick = () => {
   document.getElementById('menuCard').classList.remove('hidden');
 };
 document.getElementById('menuLogout').onclick = () => {
-  document.getElementById('menuOverlay').classList.add('hidden');
-  document.getElementById('menuCard').classList.add('hidden');
+  closeMenu();
   if (confirm('Выйти из аккаунта?')) logout();
 };
+
+// Enter в строке поиска выбирает первый подходящий адрес
+document.getElementById('searchInput').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const first = document.querySelector('#suggestions div');
+  if (first) { first.click(); e.preventDefault(); }
+});
 
 </script>
 </body>
