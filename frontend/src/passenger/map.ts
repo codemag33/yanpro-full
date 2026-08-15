@@ -60,7 +60,8 @@ export function initMap() {
   state.map.on('click', (e) => {
     if (state.activeRide || state.activeAssist) return; // во время активной поездки клики по карте не меняют точки
     const { lng, lat } = e.lngLat;
-    if (!state.pickup) setPickup(lat, lng);
+    if (state.mode === 'assist') setPickup(lat, lng); // в режиме помощи нужна только одна точка
+    else if (!state.pickup) setPickup(lat, lng);
     else setDestination(lat, lng);
   });
 }

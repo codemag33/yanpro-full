@@ -33,6 +33,12 @@ export interface PassengerState {
   geoWatchId: number | null;
   backgrounded: boolean;
   bgRecoveryTimer: boolean;
+  searchRideId: string | null;    // id поездки в поиске водителя (для отмены на сервере)
+  searchAssistId: string | null;  // id заявки в поиске мастера
+  connStatus: 'online' | 'offline' | null; // последний статус соединения
+  cancellingRide: boolean;   // отменяем сами — игнорируем эхо ride:cancelled
+  cancellingAssist: boolean; // отменяем сами — игнорируем эхо assistance:cancelled
+  priceOfferTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export const state: PassengerState = {
@@ -51,4 +57,10 @@ export const state: PassengerState = {
   geoWatchId: null,
   backgrounded: false,
   bgRecoveryTimer: false,
+  searchRideId: null,
+  searchAssistId: null,
+  connStatus: null,
+  cancellingRide: false,
+  cancellingAssist: false,
+  priceOfferTimer: null,
 };

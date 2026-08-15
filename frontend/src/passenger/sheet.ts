@@ -13,9 +13,23 @@ import {
 
 const sheet = document.getElementById('sheet');
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 export function renderSheetIdle() {
   if (state.activeRide || state.activeAssist) return; // не перерисовываем поверх активного состояния
   sheet.classList.remove('hidden');
+  const searchInput = document.getElementById('searchInput') as HTMLInputElement;
+  searchInput.placeholder = state.mode === 'assist' ? 'Где нужна помощь?' : 'Куда едем?';
+  if (state.mode === 'assist' && state.destination) {
+    // Точка Б не нужна в режиме помощи — убираем её и маркер
+    state.destination = null;
+    if (state.markers.dest) {
+      state.markers.dest.remove();
+      state.markers.dest = null;
+    }
+  }
   const pickupText = state.pickup?.address || (state.pickup ? 'Определяем адрес...' : 'Точка не выбрана — коснитесь карты');
   const destText = state.destination?.address || (state.destination ? 'Определяем адрес...' : 'Куда едем?');
 
@@ -48,8 +62,9 @@ export function renderSheetIdle() {
         <option value="other">Другое</option>
       </select>
       <input id="carMake" placeholder="Марка автомобиля">
-      <input id="phoneField" type="tel" placeholder="Телефон для связи">
+      <input id="phoneField" type="tel" placeholder="Телефон для связи" value="${escapeHtml(state.user?.phone ? String(state.user.phone) : '')}">
       <textarea id="descField" placeholder="Опишите проблему"></textarea>
+      <div class="hint">Телефон обязателен — мастер должен суметь с вами связаться.</div>
       <button class="primaryBtn" id="btnAssist" ${!state.pickup ? 'disabled' : ''}>Вызвать мастера</button>
     `;
     document.getElementById('btnAssist').onclick = requestAssistance;
@@ -116,17 +131,17 @@ export function renderRideState(status: string, driverName?: string) {
 // ─── Торг ценой: пассажир видит предложение водителя ────────────────────
 function acceptPriceOffer() {
   const rideId = state.activeRide?.id;
+  const price = state.activeRide?.priceOffer;
   if (!rideId) return;
-  const amount = document.getElementById('priceOfferAmount').textContent;
   state.socket?.emit(EVENTS.RIDE_PRICE_OFFER_ACCEPT, { rideId });
-  document.getElementById('priceOfferBox').classList.add('hidden');
-  toast(`Цена ${amount} принята`);
+  hidePriceOffer();
+  if (price) toast(`Цена ${price} ₽ принята`);
 }
 function rejectPriceOffer() {
   const rideId = state.activeRide?.id;
   if (!rideId) return;
   state.socket?.emit(EVENTS.RIDE_PRICE_OFFER_REJECT, { rideId });
-  document.getElementById('priceOfferBox').classList.add('hidden');
+  hidePriceOffer();
   toast('Вы отклонили предложенную цену');
 }
 function showPriceOffer(price: number) {
@@ -134,6 +149,20 @@ function showPriceOffer(price: number) {
   if (!box) return;
   document.getElementById('priceOfferAmount').textContent = `${price} ₽`;
   box.classList.remove('hidden');
+  // Если пассажир не ответит за минуту — предложение снимается автоматически
+  if (state.priceOfferTimer) clearTimeout(state.priceOfferTimer);
+  state.priceOfferTimer = setTimeout(() => {
+    rejectPriceOffer();
+    toast('Предложение цены истекло');
+  }, 60000);
+}
+function hidePriceOffer() {
+  if (state.priceOfferTimer) {
+    clearTimeout(state.priceOfferTimer);
+    state.priceOfferTimer = null;
+  }
+  const box = document.getElementById('priceOfferBox');
+  if (box) box.classList.add('hidden');
 }
 
 export function renderAssistState(status: string, mechanicName?: string) {
