@@ -77,11 +77,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Подписанный release-APK приоритетнее; иначе — debug
-          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
-            cp android/app/build/outputs/apk/release/app-release.apk /tmp/yanpro-driver.apk
+          # Подписанный release-APK приоритетнее; иначе — debug.
+          # `run:` уже исполняется в android/ (defaults.working-directory),
+          # поэтому путь идёт от app/, а не от android/app/.
+          # Глоб вместо фиксированного имени — устойчиво к неймингу AGP.
+          rel_apk=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -1)
+          if [ -n "$rel_apk" ]; then
+            cp "$rel_apk" /tmp/yanpro-driver.apk
           else
-            cp android/app/build/outputs/apk/debug/app-debug.apk /tmp/yanpro-driver.apk
+            cp "$(ls app/build/outputs/apk/debug/*.apk | head -1)" /tmp/yanpro-driver.apk
           fi
           gh release view latest-apk --repo "${{ github.repository }}" >/dev/null 2>&1 \
             || gh release create latest-apk --repo "${{ github.repository }}" \
