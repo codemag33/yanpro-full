@@ -5,6 +5,7 @@ import { state } from './core';
 import { EVENTS, type ChatContext } from '../shared/protocol';
 import { api } from './api';
 import { toast } from './ui';
+import { initSheetCollapse } from '../shared/sheet-collapse';
 import { initMap, placeMarker, setPickup, setDestination, getAndDrawRoute } from './map';
 import {
   renderSheetIdle,
@@ -212,6 +213,26 @@ document.getElementById('searchInput').addEventListener('keydown', (e) => {
     e.preventDefault();
   }
 });
+
+/* ─── Сворачивание нижнего листа свайпом вниз ─────────────────── */
+// Потянул лист вниз за ручку — уезжает, карта открыта, внизу пилюля.
+initSheetCollapse(
+  document.getElementById('sheet'),
+  document.getElementById('sheetCollapsedBar'),
+  () => {
+    const r = state.activeRide;
+    const a = state.activeAssist;
+    if (r) {
+      const st = ({ accepted: 'Водитель едет к вам', in_progress: 'В пути', searching: 'Ищем водителя...' } as Record<string, string>)[r.status] || r.status;
+      return `▲ ${r.driverName || 'Водитель'} — ${st}`;
+    }
+    if (a) {
+      const st = ({ accepted: 'Мастер выехал', in_progress: 'Мастер в пути', waiting: 'Ищем мастера...' } as Record<string, string>)[a.status] || a.status;
+      return `▲ ${a.mechanicName || 'Мастер'} — ${st}`;
+    }
+    return '▲ Куда едем?';
+  }
+);
 
 /* ════════════════════════ SOCKET.IO ════════════════════════ */
 function updateConn(status: 'online' | 'connecting' | 'offline') {

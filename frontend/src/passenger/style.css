@@ -33,7 +33,9 @@ button{font-family:inherit; border:none; cursor:pointer;}
 
 /* ── Нижний лист ────────────────────────────────────────────────── */
 #sheet{position:fixed; left:0; right:0; bottom:0; background:var(--card); border-radius:20px 20px 0 0; box-shadow:0 -4px 24px rgba(0,0,0,.4); padding:14px 16px calc(16px + env(safe-area-inset-bottom)); z-index:30; max-height:70vh; overflow-y:auto;}
-.dragHandle{width:36px; height:4px; background:#3A3A3A; border-radius:2px; margin:0 auto 12px;}
+#sheet.sheetCollapsed{transform:translateY(100%); box-shadow:none;}
+.dragHandle{width:36px; height:4px; background:#3A3A3A; border-radius:2px; margin:0 auto 12px; touch-action:none;}
+#sheetCollapsedBar{position:fixed; left:12px; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); background:var(--card); border-radius:16px; padding:13px 16px; box-shadow:var(--shadow); z-index:35; display:flex; align-items:center; justify-content:center; gap:8px; font-size:14px; font-weight:600; color:var(--yellow); cursor:pointer;}
 .modeTabs{display:flex; gap:8px; margin-bottom:14px;}
 .modeTab{flex:1; padding:10px; text-align:center; border-radius:10px; background:var(--card2); color:var(--muted); font-size:14px; font-weight:600; border:1px solid #3A3A3A;}
 .modeTab.active{background:var(--yellow); color:#111; border-color:var(--yellow);}

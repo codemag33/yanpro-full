@@ -4,6 +4,7 @@ import { io } from 'socket.io-client';
 import { state, type DriverUser } from './core';
 import { EVENTS } from '../shared/protocol';
 import { createApi } from '../shared/api';
+import { initSheetCollapse } from '../shared/sheet-collapse';
 import { toast } from './ui';
 import { initMap, placeMarker, startLocationWatch, stopLocationWatch } from './map';
 import {
@@ -139,6 +140,23 @@ function startApp() {
   fetchEarnings();
 }
 if (state.token && state.user) startApp();
+
+/* ─── Сворачивание нижнего листа свайпом вниз ─────────────────── */
+// Потянул лист активного заказа вниз — карта открылась, внизу пилюля.
+initSheetCollapse(
+  document.getElementById('sheet'),
+  document.getElementById('sheetCollapsedBar'),
+  () => {
+    const r = state.activeRide;
+    const a = state.activeAssist;
+    if (r) {
+      const st = ({ accepted: 'Едем за пассажиром', in_progress: 'В поездке' } as Record<string, string>)[r.status] || r.status;
+      return `▲ ${r.name || 'Пассажир'} — ${st}`;
+    }
+    if (a) return `▲ ${a.name || 'Пассажир'} — Выехали на помощь`;
+    return '▲ Развернуть заказ';
+  }
+);
 
 /* ─── Жизненный цикл страницы ──────────────────────────────── */
 state.backgrounded = false;
