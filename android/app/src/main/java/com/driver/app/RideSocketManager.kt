@@ -390,6 +390,30 @@ class RideSocketManager(
         socket?.emit("assistance:skip", JSONObject().put("assistId", assistId))
     }
 
+    /**
+     * Вернуть заказ себе: сервер перешлёт ride:new_request/assist:new_request
+     * лично этому водителю, если заявка всё ещё свободна (status searching/waiting).
+     */
+    fun reactivateRide(rideId: String, ack: ((Boolean, String?) -> Unit)? = null) {
+        val s = socket
+        if (s == null || !s.connected()) { ack?.invoke(false, "not_connected"); return }
+        s.emit("ride:reactivate", JSONObject().put("rideId", rideId), io.socket.client.Ack { args ->
+            val data = args.firstOrNull() as? JSONObject
+            val ok = data?.optBoolean("ok") ?: false
+            ack?.invoke(ok, if (ok) null else (data?.optString("error") ?: "server_error"))
+        })
+    }
+
+    fun reactivateAssist(assistId: String, ack: ((Boolean, String?) -> Unit)? = null) {
+        val s = socket
+        if (s == null || !s.connected()) { ack?.invoke(false, "not_connected"); return }
+        s.emit("assist:reactivate", JSONObject().put("assistId", assistId), io.socket.client.Ack { args ->
+            val data = args.firstOrNull() as? JSONObject
+            val ok = data?.optBoolean("ok") ?: false
+            ack?.invoke(ok, if (ok) null else (data?.optString("error") ?: "server_error"))
+        })
+    }
+
     fun requestPendingList() {
         socket?.emit("pending:list")
     }
