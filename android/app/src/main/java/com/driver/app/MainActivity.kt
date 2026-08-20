@@ -172,7 +172,7 @@ class MainActivity : AppCompatActivity() {
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
             enableLocationComponent()
         } else {
-            Toast.makeText(this, R.string.toast_location_permission_denied, Toast.LENGTH_LONG).show()
+            Toast.makeText(this@MainActivity, R.string.toast_location_permission_denied, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -265,7 +265,7 @@ class MainActivity : AppCompatActivity() {
 
         rideSocket.onAuthInvalid = {
             runOnUiThread {
-                Toast.makeText(this, "Ошибка авторизации", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, "Ошибка авторизации", Toast.LENGTH_LONG).show()
                 session.clear()
                 startActivity(Intent(this, LoginActivity::class.java))
                 finish()
@@ -335,7 +335,7 @@ class MainActivity : AppCompatActivity() {
                 if (pendingRideId == rideId) hideRequestCard()
                 requestQueue.removeAll { it.type == "ride" && it.rideId == rideId }
                 if (had) {
-                    Toast.makeText(this, "Заказ уже принят другим водителем", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Заказ уже принят другим водителем", Toast.LENGTH_SHORT).show()
                     showNextFromQueue()
                 }
             }
@@ -348,7 +348,7 @@ class MainActivity : AppCompatActivity() {
                 if (pendingRideId == rideId) hideRequestCard()
                 requestQueue.removeAll { it.type == "ride" && it.rideId == rideId }
                 if (had) {
-                    Toast.makeText(this, "Заказ закрыт для других водителей", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Заказ закрыт для других водителей", Toast.LENGTH_SHORT).show()
                     showNextFromQueue()
                 }
             }
@@ -361,7 +361,7 @@ class MainActivity : AppCompatActivity() {
                 if (pendingAssistId == assistId) hideRequestCard()
                 requestQueue.removeAll { it.type == "assist" && it.assistId == assistId }
                 if (had) {
-                    Toast.makeText(this, "Заявка уже принята другим мастером", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Заявка уже принята другим мастером", Toast.LENGTH_SHORT).show()
                     showNextFromQueue()
                 }
             }
@@ -374,7 +374,7 @@ class MainActivity : AppCompatActivity() {
                 if (pendingAssistId == assistId) hideRequestCard()
                 requestQueue.removeAll { it.type == "assist" && it.assistId == assistId }
                 if (had) {
-                    Toast.makeText(this, "Заявка закрыта для других мастеров", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Заявка закрыта для других мастеров", Toast.LENGTH_SHORT).show()
                     showNextFromQueue()
                 }
             }
@@ -397,7 +397,7 @@ class MainActivity : AppCompatActivity() {
 
         rideSocket.onPriceAccepted = { rideId, price ->
             runOnUiThread {
-                Toast.makeText(this, "Пассажир принял цену: %.0f ₽".format(price), Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, "Пассажир принял цену: %.0f ₽".format(price), Toast.LENGTH_LONG).show()
             }
         }
 
@@ -407,7 +407,7 @@ class MainActivity : AppCompatActivity() {
 
         rideSocket.onPriceRejected = { rideId ->
             runOnUiThread {
-                Toast.makeText(this, "Пассажир отклонил вашу цену", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "Пассажир отклонил вашу цену", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -443,7 +443,7 @@ class MainActivity : AppCompatActivity() {
         rideSocket.onRideFinished = { rideId ->
             runOnUiThread {
                 if (currentRideId == rideId || currentRideId == null) {
-                    Toast.makeText(this, R.string.toast_order_finished, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, R.string.toast_order_finished, Toast.LENGTH_SHORT).show()
                     clearActiveState()
                     clearRideState()
                     mapController.clearAll(mapLibreMap)
@@ -474,7 +474,7 @@ class MainActivity : AppCompatActivity() {
         rideSocket.onAssistFinished = { assistId ->
             runOnUiThread {
                 if (currentAssistId == assistId || currentAssistId == null) {
-                    Toast.makeText(this, R.string.toast_assistance_finished, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, R.string.toast_assistance_finished, Toast.LENGTH_SHORT).show()
                     clearActiveState()
                     clearRideState()
                     mapController.clearAll(mapLibreMap)
@@ -503,7 +503,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         rideSocket.onServerError = { ctx ->
-            runOnUiThread { Toast.makeText(this, "Ошибка: $ctx", Toast.LENGTH_SHORT).show() }
+            runOnUiThread { Toast.makeText(this@MainActivity, "Ошибка: $ctx", Toast.LENGTH_SHORT).show() }
         }
 
         rideSocket.onChatHistory = { contextType, contextId, messages ->
@@ -539,25 +539,27 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Клик по кружку свободной заявки — вернуть её себе (reactivate).
-        mapController.onPendingClick = { type, id ->
-            if (currentRideId != null || currentAssistId != null || pendingRideId != null || pendingAssistId != null) {
-                Toast.makeText(this, "Сначала завершите текущую заявку", Toast.LENGTH_SHORT).show()
-                return@onPendingClick
-            }
-            val fn: (Boolean, String?) -> Unit = { ok, error ->
-                runOnUiThread {
-                    if (ok) {
-                        Toast.makeText(this, "Заказ вернулся — примите решение", Toast.LENGTH_SHORT).show()
-                    } else {
-                        val msg = if (error == "taken") "Заявку уже взяли"
-                            else if (error == "not_connected") "Нет соединения с сервером"
-                            else "Не удалось вернуть заказ (может уже занят)"
-                        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-                    }
+        mapController.onPendingClick = { type, id -> onPendingMarkerClicked(type, id) }
+    }
+
+    private fun onPendingMarkerClicked(type: String, id: String) {
+        if (currentRideId != null || currentAssistId != null || pendingRideId != null || pendingAssistId != null) {
+            Toast.makeText(this@MainActivity, "Сначала завершите текущую заявку", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val fn: (Boolean, String?) -> Unit = { ok, error ->
+            runOnUiThread {
+                if (ok) {
+                    Toast.makeText(this@MainActivity, "Заказ вернулся — примите решение", Toast.LENGTH_SHORT).show()
+                } else {
+                    val msg = if (error == "taken") "Заявку уже взяли"
+                        else if (error == "not_connected") "Нет соединения с сервером"
+                        else "Не удалось вернуть заказ (может уже занят)"
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                 }
             }
-            if (type == "assist") rideSocket.reactivateAssist(id, fn) else rideSocket.reactivateRide(id, fn)
         }
+        if (type == "assist") rideSocket.reactivateAssist(id, fn) else rideSocket.reactivateRide(id, fn)
     }
 
     // ─── Map ───────────────────────────────────────────────────────────────
@@ -672,7 +674,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 DriverService.stop(this)
             }
-            Toast.makeText(this, if (isOnline) R.string.toast_went_online else R.string.toast_went_offline, Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, if (isOnline) R.string.toast_went_online else R.string.toast_went_offline, Toast.LENGTH_SHORT).show()
         }
 
         binding.btnHistory.setOnClickListener {
@@ -920,10 +922,10 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Предложить") { _, _ ->
                 val price = input.text.toString().trim().toDoubleOrNull()
                 if (price == null || price <= 0) {
-                    Toast.makeText(this, "Укажите корректную цену", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Укажите корректную цену", Toast.LENGTH_SHORT).show()
                 } else {
                     rideSocket.offerPrice(rideId, price)
-                    Toast.makeText(this, "Цена %.0f ₽ предложена".format(price), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Цена %.0f ₽ предложена".format(price), Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton("Отмена", null)
@@ -1204,7 +1206,7 @@ class MainActivity : AppCompatActivity() {
         val priceText = binding.etPriceInput.text.toString().trim()
         val price = priceText.toDoubleOrNull()
         if (price == null || price <= 0) {
-            Toast.makeText(this, "Укажите корректную цену", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, "Укажите корректную цену", Toast.LENGTH_SHORT).show()
             return
         }
         val assistId = pendingPriceAssistId
@@ -1215,14 +1217,14 @@ class MainActivity : AppCompatActivity() {
             rideSocket.finishAssistance(assistId, price) { ok, error ->
                 runOnUiThread {
                     if (!ok) {
-                        Toast.makeText(this, "Не удалось завершить работу (${error ?: "нет связи"}). Повторите.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Не удалось завершить работу (${error ?: "нет связи"}). Повторите.", Toast.LENGTH_LONG).show()
                         pendingPriceAssistId = assistId
                         showPriceModal(assistId, isAssist = true)
                     } else {
                         // Подтверждение получено — только теперь сбрасываем активное состояние
                         clearActiveState()
                         mapController.clearAll(mapLibreMap)
-                        Toast.makeText(this, "Заказ завершён за %.0f ₽".format(price), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Заказ завершён за %.0f ₽".format(price), Toast.LENGTH_SHORT).show()
                         showNextFromQueue()
                     }
                 }
@@ -1231,14 +1233,14 @@ class MainActivity : AppCompatActivity() {
             rideSocket.finishRide(rideId, price) { ok, error ->
                 runOnUiThread {
                     if (!ok) {
-                        Toast.makeText(this, "Не удалось завершить поездку (${error ?: "нет связи"}). Повторите.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Не удалось завершить поездку (${error ?: "нет связи"}). Повторите.", Toast.LENGTH_LONG).show()
                         pendingPriceRideId = rideId
                         showPriceModal(rideId)
                     } else {
                         // Подтверждение получено — только теперь сбрасываем активное состояние
                         clearActiveState()
                         mapController.clearAll(mapLibreMap)
-                        Toast.makeText(this, "Заказ завершён за %.0f ₽".format(price), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Заказ завершён за %.0f ₽".format(price), Toast.LENGTH_SHORT).show()
                         showNextFromQueue()
                     }
                 }
@@ -1270,7 +1272,7 @@ class MainActivity : AppCompatActivity() {
         if (intent.resolveActivity(packageManager) != null) {
             startActivity(intent)
         } else {
-            Toast.makeText(this, R.string.nav_yandex_not_installed, Toast.LENGTH_LONG).show()
+            Toast.makeText(this@MainActivity, R.string.nav_yandex_not_installed, Toast.LENGTH_LONG).show()
             startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=ru.yandex.yandexnavi")))
         }
         enterPipMode()
@@ -1657,7 +1659,7 @@ class MainActivity : AppCompatActivity() {
                 row.setOnClickListener {
                     if (!isOpen) return@setOnClickListener
                     if (currentRideId != null || currentAssistId != null || pendingRideId != null || pendingAssistId != null) {
-                        Toast.makeText(this, "Сначала завершите текущую заявку", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Сначала завершите текущую заявку", Toast.LENGTH_SHORT).show()
                         return@setOnClickListener
                     }
                     val reqId = obj.optString("request_id", "").ifEmpty { return@setOnClickListener }
@@ -1665,12 +1667,12 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread {
                             if (ok) {
                                 dialog.dismiss()
-                                Toast.makeText(this, "Заказ вернулся — примите решение", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@MainActivity, "Заказ вернулся — примите решение", Toast.LENGTH_SHORT).show()
                             } else {
                                 val msg = if (error == "taken") "Заявку уже взяли"
                                     else if (error == "not_connected") "Нет соединения с сервером"
                                     else "Не удалось вернуть заказ (может уже занят)"
-                                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
@@ -1737,14 +1739,14 @@ class MainActivity : AppCompatActivity() {
         swSound.isChecked = session.soundEnabled
         swSound.setOnCheckedChangeListener { _, checked ->
             session.soundEnabled = checked
-            Toast.makeText(this, if (checked) "Звук включён" else "Звук выключен", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, if (checked) "Звук включён" else "Звук выключен", Toast.LENGTH_SHORT).show()
         }
 
         btnChangePassword.setOnClickListener {
             val current = etCurrentPassword.text.toString()
             val newPass = etNewPassword.text.toString()
             if (current.isEmpty() || newPass.length < 6) {
-                Toast.makeText(this, "Заполните оба поля (новый пароль — от 6 символов)", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "Заполните оба поля (новый пароль — от 6 символов)", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             btnChangePassword.isEnabled = false
@@ -1788,7 +1790,7 @@ class MainActivity : AppCompatActivity() {
                 session.serverUrl = newUrl
                 session.name = newName
                 rideSocket.disconnect()
-                Toast.makeText(this, "Сервер: $newUrl", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "Сервер: $newUrl", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
         }
