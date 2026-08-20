@@ -23,6 +23,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.BaseAdapter
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
@@ -536,6 +537,27 @@ class MainActivity : AppCompatActivity() {
         rideSocket.onPendingAssistRemoved = { id ->
             runOnUiThread { mapController.removePendingMarker(mapLibreMap, id) }
         }
+
+        // Клик по кружку свободной заявки — вернуть её себе (reactivate).
+        mapController.onPendingClick = { type, id ->
+            if (currentRideId != null || currentAssistId != null || pendingRideId != null || pendingAssistId != null) {
+                Toast.makeText(this, "Сначала завершите текущую заявку", Toast.LENGTH_SHORT).show()
+                return@onPendingClick
+            }
+            val fn: (Boolean, String?) -> Unit = { ok, error ->
+                runOnUiThread {
+                    if (ok) {
+                        Toast.makeText(this, "Заказ вернулся — примите решение", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val msg = if (error == "taken") "Заявку уже взяли"
+                            else if (error == "not_connected") "Нет соединения с сервером"
+                            else "Не удалось вернуть заказ (может уже занят)"
+                        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            if (type == "assist") rideSocket.reactivateAssist(id, fn) else rideSocket.reactivateRide(id, fn)
+        }
     }
 
     // ─── Map ───────────────────────────────────────────────────────────────
@@ -545,6 +567,7 @@ class MainActivity : AppCompatActivity() {
         binding.mapView.onCreate(null)
         binding.mapView.getMapAsync { map ->
             mapLibreMap = map
+            mapController.setupPendingClick(map)
             loadMapStyle("https://tiles.openfreemap.org/styles/liberty")
         }
 
@@ -1572,6 +1595,92 @@ class MainActivity : AppCompatActivity() {
 
         backBtn.setOnClickListener { dialog.dismiss() }
 
+        val adapter = object : BaseAdapter() {
+            private var rows: List<org.json.JSONObject> = emptyList()
+            fun setData(list: List<org.json.JSONObject>) { rows = list; notifyDataSetChanged() }
+            override fun getCount() = rows.size
+            override fun getItem(position: Int) = rows[position]
+            override fun getItemId(position: Int) = position.toLong()
+            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                val row = convertView ?: this@MainActivity.layoutInflater.inflate(R.layout.item_skipped, parent, false)
+                val obj = rows[position]
+                val type = obj.optString("request_type", "")
+                val isAssist = type == "assist"
+                val status = obj.optString("status", "")
+                val isOpen = status == "searching" || status == "waiting"
+
+                row.findViewById<TextView>(R.id.tvSkippedType).text =
+                    if (isAssist) "Помощь" else "Заказ"
+
+                val date = obj.optString("skipped_at", "")
+                    .take(16).replace("T", " ")
+                row.findViewById<TextView>(R.id.tvSkippedDate).text = date
+
+                val statusLabel = when (status) {
+                    "searching" -> "⏳ Ищет водителя"
+                    "waiting" -> "⏳ Ищет мастера"
+                    "accepted" -> "✅ Принят"
+                    "in_progress" -> "🚗 В пути"
+                    "completed" -> "✅ Выполнено"
+                    "cancelled" -> "❌ Отменено"
+                    else -> if (status.isEmpty()) "Сведения недоступны" else status
+                }
+                val statusColor = when (status) {
+                    "completed" -> getColorCompat(R.color.uber_green)
+                    "cancelled" -> getColorCompat(R.color.uber_red)
+                    else -> getColorCompat(R.color.uber_yellow)
+                }
+                val tvStatus = row.findViewById<TextView>(R.id.tvSkippedStatus)
+                tvStatus.text = statusLabel
+                tvStatus.setTextColor(statusColor)
+
+                val from = obj.optString("pickup_address", "")
+                val to = obj.optString("destination_address", "")
+                val routeText = if (from.isNotEmpty() && to.isNotEmpty()) "$from → $to"
+                    else if (from.isNotEmpty()) from else to
+                row.findViewById<TextView>(R.id.tvSkippedRoute).text =
+                    routeText.ifEmpty { "Адрес неизвестен" }
+
+                val name = obj.optString("passenger_name", "")
+                val phone = obj.optString("passenger_phone", "")
+                val clientParts = mutableListOf<String>()
+                if (name.isNotEmpty()) clientParts.add(name)
+                if (phone.isNotEmpty()) clientParts.add("📞 $phone")
+                row.findViewById<TextView>(R.id.tvSkippedClient).text = clientParts.joinToString(" · ")
+
+                val tvHint = row.findViewById<TextView>(R.id.tvSkippedHint)
+                val hint = if (isOpen) "↩ Нажмите, чтобы взять в работу" else ""
+                tvHint.text = hint
+                tvHint.visibility = if (isOpen) View.VISIBLE else View.GONE
+                row.isEnabled = isOpen
+                row.alpha = if (isOpen) 1.0f else 0.6f
+                row.setOnClickListener {
+                    if (!isOpen) return@setOnClickListener
+                    if (currentRideId != null || currentAssistId != null || pendingRideId != null || pendingAssistId != null) {
+                        Toast.makeText(this, "Сначала завершите текущую заявку", Toast.LENGTH_SHORT).show()
+                        return@setOnClickListener
+                    }
+                    val reqId = obj.optString("request_id", "").ifEmpty { return@setOnClickListener }
+                    val fn: (Boolean, String?) -> Unit = { ok, error ->
+                        runOnUiThread {
+                            if (ok) {
+                                dialog.dismiss()
+                                Toast.makeText(this, "Заказ вернулся — примите решение", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val msg = if (error == "taken") "Заявку уже взяли"
+                                    else if (error == "not_connected") "Нет соединения с сервером"
+                                    else "Не удалось вернуть заказ (может уже занят)"
+                                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    if (isAssist) rideSocket.reactivateAssist(reqId, fn) else rideSocket.reactivateRide(reqId, fn)
+                }
+                return row
+            }
+        }
+        listView.adapter = adapter
+
         lifecycleScope.launch {
             val body: String? = withContext(Dispatchers.IO) {
                 try {
@@ -1593,28 +1702,24 @@ class MainActivity : AppCompatActivity() {
             try {
                 val json = org.json.JSONObject(body)
                 val arr = json.optJSONArray("skips") ?: org.json.JSONArray()
+                val list = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
                 runOnUiThread {
-                    if (arr.length() == 0) {
+                    if (list.isEmpty()) {
                         tvEmpty.visibility = View.VISIBLE
                     } else {
-                        val items = (0 until arr.length()).map { i ->
-                            val obj = arr.optJSONObject(i)
-                            val name = obj?.optString("passenger_name", "—") ?: "—"
-                            val addr = obj?.optString("pickup_address", "") ?: ""
-                            val time = obj?.optString("skipped_at", "")?.take(16)?.replace("T", " ") ?: ""
-                            "$name  ·  $time\n$addr"
-                        }
-                        val adapter = android.widget.ArrayAdapter(this@MainActivity,
-                            android.R.layout.simple_list_item_1, items)
-                        listView.adapter = adapter
+                        adapter.setData(list)
                     }
                 }
             } catch (_: Exception) {
                 runOnUiThread { tvEmpty.visibility = View.VISIBLE }
             }
         }
+
         dialog.show()
     }
+
+    private fun getColorCompat(resId: Int): Int =
+        androidx.core.content.ContextCompat.getColor(this, resId)
 
     private fun openServerSettingsDialog() {
         val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar)

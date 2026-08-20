@@ -73,6 +73,9 @@ class MapController(private val context: Context) {
 
     var onRouteInfo: ((km: String, min: String) -> Unit)? = null
 
+    /** Клик по кружку свободной заявки на карте — вернуть заявку себе (reactivate). */
+    var onPendingClick: ((type: String, id: String) -> Unit)? = null
+
     // ─── Public state ────────────────────────────────────────────────────────
 
     var pointA: LatLng? = null
@@ -551,6 +554,20 @@ class MapController(private val context: Context) {
     private fun refreshPendingSource(style: Style) {
         style.getSourceAs<GeoJsonSource>(pendingSourceId)
             ?.setGeoJson(FeatureCollection.fromFeatures(pendingFeatures.values.toList()))
+    }
+
+    /** Навешивает обработчик клика по кружкам свободных заявок (пропущенных/не увиденных). */
+    fun setupPendingClick(map: MapLibreMap?) {
+        val m = map ?: return
+        m.addOnMapClickListener { latLng ->
+            val screen = m.projection.toScreenLocation(latLng)
+            val features = m.queryRenderedFeatures(screen, pendingLayerId)
+            val feature = features.firstOrNull() ?: return@addOnMapClickListener false
+            val id = feature.getStringProperty("id")?.takeIf { it.isNotEmpty() } ?: return@addOnMapClickListener false
+            val type = feature.getStringProperty("type") ?: "ride"
+            onPendingClick?.invoke(type, id)
+            true
+        }
     }
 
     // ─── Incoming request markers ─────────────────────────────────────────
