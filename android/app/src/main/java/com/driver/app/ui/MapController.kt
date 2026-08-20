@@ -105,6 +105,10 @@ class MapController(private val context: Context) {
 
     /** Настраивает слои маркеров на карте. Вызывать после загрузки стиля. */
     fun setupLayers(style: Style) {
+        // Идемпотентность: повторный вызов на том же стиле (fallback-стиля,
+        // реконнекта) не должен кидать исключение "source/layer already exists".
+        // При этом новый стиль (другой Style-объект) обязан настраиваться заново.
+        if (style.getSourceAs<GeoJsonSource>(pointASourceId) != null) return
         style.addImage("point-a-marker", vectorToBitmap(com.driver.app.R.drawable.ic_point_a))
         style.addImage("point-b-marker", vectorToBitmap(com.driver.app.R.drawable.ic_dest_pin))
         style.addImage("route-arrow", vectorToBitmap(com.driver.app.R.drawable.ic_route_arrow))

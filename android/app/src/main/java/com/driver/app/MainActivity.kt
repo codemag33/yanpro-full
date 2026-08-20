@@ -113,6 +113,11 @@ class MainActivity : AppCompatActivity() {
     private var lastRouteDistance = 0.0 // km
     private var lastRouteDuration = 0.0 // seconds
 
+    // Полный маршрут поездки (пикап → точка Б) — используется для расчёта цены.
+    // Отличается от lastRoute* (до пикапа), который нужен только для отображения.
+    private var tripRouteDistance = 0.0 // km
+    private var tripRouteDuration = 0.0 // seconds
+
     private var locationBroadcastHandler = Handler(Looper.getMainLooper())
     private var locationBroadcastRunnable: Runnable? = null
 
@@ -214,6 +219,18 @@ class MainActivity : AppCompatActivity() {
 
         setupRideSocket()
         rideSocket.connect()
+
+        // PiP: «Завершить заказ» может прийти в onCreate, если процесс был
+        // пересоздан системой (в onNewIntent его уже не будет).
+        handlePipFinishIntent(intent)
+    }
+
+    private fun handlePipFinishIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(PipActionReceiver.EXTRA_FINISH_ORDER, false) == true) {
+            if (currentRideStatus == "in_progress" && currentRideId != null) {
+                showPriceModal(currentRideId!!)
+            }
+        }
     }
 
     // ─── Ride Socket ───────────────────────────────────────────────────────
@@ -259,19 +276,17 @@ class MainActivity : AppCompatActivity() {
 
             val id = data.optString("id")
             val status = data.optString("status")
-            val pName = data.optString("passengerName", "Пассажир")
-            val pickup = data.optJSONObject("pickup")
-            val dest = data.optJSONObject("destination")
-            val pAddr = data.optString("pickupAddress", "")
-            val dAddr = data.optString("destinationAddress", "")
+            val pName = data.optString("passenger_name", "Пассажир")
+            val pAddr = data.optString("pickup_address", "")
+            val dAddr = data.optString("destination_address", "")
 
             currentRideId = id
             currentPassengerName = pName
             currentRideStatus = status
             currentPickupAddr = pAddr
             currentDestAddr = dAddr
-            if (pickup != null) { currentPickupLat = pickup.optDouble("lat"); currentPickupLon = pickup.optDouble("lon") }
-            if (dest != null) { currentDestLat = dest.optDouble("lat"); currentDestLon = dest.optDouble("lon") }
+            if (data.has("pickup_lat")) { currentPickupLat = data.optDouble("pickup_lat"); currentPickupLon = data.optDouble("pickup_lon") }
+            if (data.has("destination_lat")) { currentDestLat = data.optDouble("destination_lat"); currentDestLon = data.optDouble("destination_lon") }
 
             runOnUiThread {
                 showActiveRide()
@@ -281,15 +296,18 @@ class MainActivity : AppCompatActivity() {
 
         rideSocket.onRestoreAssist = { data ->
             val id = data.optString("id")
-            val pName = data.optString("passengerName", "Пассажир")
-            val pickup = data.optJSONObject("pickup")
-            val pAddr = data.optString("pickupAddress", "")
+            val pName = data.optString("passenger_name", "Пассажир")
+            val carMake = data.optString("car_make", "")
+            val phone = data.optString("phone", "")
+            val bType = data.optString("breakdown_type", "")
+            val desc = data.optString("description", "")
 
             currentAssistId = id
             currentPassengerName = pName
-            currentPickupAddr = pAddr
+            currentPickupAddr = if (carMake.isNotEmpty()) "$carMake, $phone" else data.optString("pickup_address", "")
+            currentDestAddr = desc
             currentRideStatus = "assistance"
-            if (pickup != null) { currentPickupLat = pickup.optDouble("lat"); currentPickupLon = pickup.optDouble("lon") }
+            if (data.has("pickup_lat")) { currentPickupLat = data.optDouble("pickup_lat"); currentPickupLon = data.optDouble("pickup_lon") }
 
             runOnUiThread {
                 showActiveAssistance()
@@ -310,9 +328,13 @@ class MainActivity : AppCompatActivity() {
 
         rideSocket.onRideAlreadyTaken = { rideId ->
             runOnUiThread {
-                if (rideId == pendingRideId) {
+                val had = pendingRideId == rideId || currentRideId == rideId ||
+                    requestQueue.any { it.type == "ride" && it.rideId == rideId }
+                if (currentRideId == rideId) clearActiveState()
+                if (pendingRideId == rideId) hideRequestCard()
+                requestQueue.removeAll { it.type == "ride" && it.rideId == rideId }
+                if (had) {
                     Toast.makeText(this, "Заказ уже принят другим водителем", Toast.LENGTH_SHORT).show()
-                    hideRequestCard()
                     showNextFromQueue()
                 }
             }
@@ -320,9 +342,12 @@ class MainActivity : AppCompatActivity() {
 
         rideSocket.onRideClosedForOthers = { rideId ->
             runOnUiThread {
-                if (rideId == pendingRideId) {
+                val had = pendingRideId == rideId ||
+                    requestQueue.any { it.type == "ride" && it.rideId == rideId }
+                if (pendingRideId == rideId) hideRequestCard()
+                requestQueue.removeAll { it.type == "ride" && it.rideId == rideId }
+                if (had) {
                     Toast.makeText(this, "Заказ закрыт для других водителей", Toast.LENGTH_SHORT).show()
-                    hideRequestCard()
                     showNextFromQueue()
                 }
             }
@@ -330,9 +355,12 @@ class MainActivity : AppCompatActivity() {
 
         rideSocket.onAssistAlreadyTaken = { assistId ->
             runOnUiThread {
-                if (assistId == pendingAssistId) {
+                val had = pendingAssistId == assistId || currentAssistId == assistId ||
+                    requestQueue.any { it.type == "assist" && it.assistId == assistId }
+                if (pendingAssistId == assistId) hideRequestCard()
+                requestQueue.removeAll { it.type == "assist" && it.assistId == assistId }
+                if (had) {
                     Toast.makeText(this, "Заявка уже принята другим мастером", Toast.LENGTH_SHORT).show()
-                    hideRequestCard()
                     showNextFromQueue()
                 }
             }
@@ -340,9 +368,12 @@ class MainActivity : AppCompatActivity() {
 
         rideSocket.onAssistClosedForOthers = { assistId ->
             runOnUiThread {
-                if (assistId == pendingAssistId) {
+                val had = pendingAssistId == assistId ||
+                    requestQueue.any { it.type == "assist" && it.assistId == assistId }
+                if (pendingAssistId == assistId) hideRequestCard()
+                requestQueue.removeAll { it.type == "assist" && it.assistId == assistId }
+                if (had) {
                     Toast.makeText(this, "Заявка закрыта для других мастеров", Toast.LENGTH_SHORT).show()
-                    hideRequestCard()
                     showNextFromQueue()
                 }
             }
@@ -369,6 +400,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        rideSocket.onPriceOffered = { _, _ ->
+            runOnUiThread { /* предложение отправлено и зафиксировано сервером — ждём ответа пассажира */ }
+        }
+
         rideSocket.onPriceRejected = { rideId ->
             runOnUiThread {
                 Toast.makeText(this, "Пассажир отклонил вашу цену", Toast.LENGTH_SHORT).show()
@@ -386,54 +421,83 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 currentRideStatus = "in_progress"
                 updateActiveCardButtons()
+                saveRideState()
                 drawRoute(currentPickupLat, currentPickupLon, currentDestLat, currentDestLon)
                 mapController.flyTo(mapLibreMap, currentDestLat, currentDestLon)
+                // Полный маршрут поездки (пикап → Б) — основа для ценообразования
+                lifecycleScope.launch {
+                    val route = withContext(Dispatchers.IO) { fetchRoute(currentPickupLon, currentPickupLat, currentDestLon, currentDestLat) }
+                    if (route != null) {
+                        runOnUiThread {
+                            tripRouteDistance = route.optDouble("distance", 0.0) / 1000.0
+                            tripRouteDuration = route.optDouble("duration", 0.0)
+                            lastRouteDistance = tripRouteDistance
+                            lastRouteDuration = tripRouteDuration
+                        }
+                    }
+                }
             }
         }
 
         rideSocket.onRideFinished = { rideId ->
             runOnUiThread {
-                Toast.makeText(this, R.string.toast_order_finished, Toast.LENGTH_SHORT).show()
-                clearActiveState()
-                clearRideState()
-                mapController.clearAll(mapLibreMap)
-                fetchEarnings()
+                if (currentRideId == rideId || currentRideId == null) {
+                    Toast.makeText(this, R.string.toast_order_finished, Toast.LENGTH_SHORT).show()
+                    clearActiveState()
+                    clearRideState()
+                    mapController.clearAll(mapLibreMap)
+                    fetchEarnings()
+                    showNextFromQueue()
+                }
             }
         }
 
         rideSocket.onRideCancelled = { rideId, by ->
             runOnUiThread {
+                if (currentRideId != rideId) {
+                    requestQueue.removeAll { it.type == "ride" && it.rideId == rideId }
+                    return@runOnUiThread
+                }
                 currentRideId = null
                 hideActiveCard()
                 clearActiveState()
                 clearRideState()
                 mapController.clearAll(mapLibreMap)
-                if (by != session.userId) {
-                    Toast.makeText(this, "Пассажир отменил поездку", Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(this,
+                    if (by == "passenger") "Пассажир отменил поездку" else "Поездка отменена",
+                    Toast.LENGTH_SHORT).show()
+                showNextFromQueue()
             }
         }
 
         rideSocket.onAssistFinished = { assistId ->
             runOnUiThread {
-                Toast.makeText(this, R.string.toast_assistance_finished, Toast.LENGTH_SHORT).show()
-                clearActiveState()
-                clearRideState()
-                mapController.clearAll(mapLibreMap)
-                fetchEarnings()
+                if (currentAssistId == assistId || currentAssistId == null) {
+                    Toast.makeText(this, R.string.toast_assistance_finished, Toast.LENGTH_SHORT).show()
+                    clearActiveState()
+                    clearRideState()
+                    mapController.clearAll(mapLibreMap)
+                    fetchEarnings()
+                    showNextFromQueue()
+                }
             }
         }
 
         rideSocket.onAssistCancelled = { assistId, by ->
             runOnUiThread {
+                if (currentAssistId != assistId) {
+                    requestQueue.removeAll { it.type == "assist" && it.assistId == assistId }
+                    return@runOnUiThread
+                }
                 currentAssistId = null
                 hideActiveCard()
                 clearActiveState()
                 clearRideState()
                 mapController.clearAll(mapLibreMap)
-                if (by != session.userId) {
-                    Toast.makeText(this, "Пассажир отменил заявку", Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(this,
+                    if (by == "passenger") "Пассажир отменил заявку" else "Заявка отменена",
+                    Toast.LENGTH_SHORT).show()
+                showNextFromQueue()
             }
         }
 
@@ -610,8 +674,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun showIncomingRideRequest(rideId: String, pName: String, pLat: Double, pLon: Double,
                                          dLat: Double, dLon: Double, pAddr: String, dAddr: String) {
-        if (currentRideId != null || currentAssistId != null) {
-            // Queue the request if one is already showing
+        if (currentRideId != null || currentAssistId != null || pendingRideId != null || pendingAssistId != null) {
+            // Already showing a card or busy with an active ride — queue.
+            // Ignore duplicates (same ride already queued or showing).
+            if (pendingRideId == rideId || requestQueue.any { it.type == "ride" && it.rideId == rideId }) return
             requestQueue.addLast(QueuedRequest("ride", rideId, null, pName, pLat, pLon, dLat, dLon, pAddr, dAddr))
             return
         }
@@ -653,9 +719,10 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     lastRouteDistance = route.optDouble("distance", 0.0) / 1000.0
                     lastRouteDuration = route.optDouble("duration", 0.0)
-                    val km = route.optString("km", "—")
-                    val min = route.optString("min", "—")
-                    binding.tvRequestRouteInfo.text = "$km · $min"
+                    tripRouteDistance = lastRouteDistance
+                    tripRouteDuration = lastRouteDuration
+                    binding.tvRequestRouteInfo.text = "%.1f км · %d мин".format(
+                        lastRouteDistance, Math.round(lastRouteDuration / 60.0))
                     val geom = route.optJSONObject("geometry")
                     if (geom != null) {
                         mapController.drawRouteOnMap(mapLibreMap, geom)
@@ -667,7 +734,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showIncomingAssistRequest(assistId: String, pName: String, pLat: Double, pLon: Double,
                                            carMake: String, bType: String, phone: String, desc: String) {
-        if (currentRideId != null || currentAssistId != null) {
+        if (currentRideId != null || currentAssistId != null || pendingRideId != null || pendingAssistId != null) {
+            if (pendingAssistId == assistId || requestQueue.any { it.type == "assist" && it.assistId == assistId }) return
             requestQueue.addLast(QueuedRequest("assist", null, assistId, pName, pLat, pLon, pLat, pLon, "", "", carMake, bType, phone, desc))
             return
         }
@@ -864,7 +932,8 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     lastRouteDistance = route.optDouble("distance", 0.0) / 1000.0
                     lastRouteDuration = route.optDouble("duration", 0.0)
-                    binding.tvActiveRouteInfo.text = "🚗 ${route.optString("km", "—")} · ${route.optString("min", "—")}"
+                    binding.tvActiveRouteInfo.text = "🚗 %.1f км · %d мин".format(
+                        lastRouteDistance, Math.round(lastRouteDuration / 60.0))
                     val geom = route.optJSONObject("geometry")
                     if (geom != null) mapController.drawRouteOnMap(mapLibreMap, geom)
                 }
@@ -1001,6 +1070,7 @@ class MainActivity : AppCompatActivity() {
                 clearActiveState()
                 mapController.clearAll(mapLibreMap)
                 clearRideState()
+                showNextFromQueue()
             }
             .setNegativeButton("Отмена", null)
             .create()
@@ -1125,6 +1195,12 @@ class MainActivity : AppCompatActivity() {
                         Toast.makeText(this, "Не удалось завершить работу (${error ?: "нет связи"}). Повторите.", Toast.LENGTH_LONG).show()
                         pendingPriceAssistId = assistId
                         showPriceModal(assistId, isAssist = true)
+                    } else {
+                        // Подтверждение получено — только теперь сбрасываем активное состояние
+                        clearActiveState()
+                        mapController.clearAll(mapLibreMap)
+                        Toast.makeText(this, "Заказ завершён за %.0f ₽".format(price), Toast.LENGTH_SHORT).show()
+                        showNextFromQueue()
                     }
                 }
             }
@@ -1135,21 +1211,29 @@ class MainActivity : AppCompatActivity() {
                         Toast.makeText(this, "Не удалось завершить поездку (${error ?: "нет связи"}). Повторите.", Toast.LENGTH_LONG).show()
                         pendingPriceRideId = rideId
                         showPriceModal(rideId)
+                    } else {
+                        // Подтверждение получено — только теперь сбрасываем активное состояние
+                        clearActiveState()
+                        mapController.clearAll(mapLibreMap)
+                        Toast.makeText(this, "Заказ завершён за %.0f ₽".format(price), Toast.LENGTH_SHORT).show()
+                        showNextFromQueue()
                     }
                 }
             }
         } else {
             return
         }
-        clearActiveState()
-        mapController.clearAll(mapLibreMap)
-        Toast.makeText(this, "Заказ завершён за %.0f ₽".format(price), Toast.LENGTH_SHORT).show()
     }
 
     private fun calculateSuggestedPrice(): Double {
         // Same formula as PWA: 50 + km*20 + duration_min*1.5
-        val km = lastRouteDistance
-        val durationMin = lastRouteDuration / 60.0
+        // Для поездки берём полный маршрут (пикап → точка Б), для помощь —
+        // маршрут до клиента (последний известный lastRoute*).
+        val isAssist = pendingPriceAssistId != null
+        val km = if (isAssist) lastRouteDistance else tripRouteDistance
+        val durationSec = if (isAssist) lastRouteDuration else tripRouteDuration
+        if (km <= 0.0) return 50.0
+        val durationMin = durationSec / 60.0
         return 50.0 + km * 20.0 + durationMin * 1.5
     }
 
@@ -1301,39 +1385,40 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private var lastRating = 0.0
-    private var lastReviewsCount = 0
+    private var currentRating = 0.0
 
     private fun fetchEarnings(menuViews: Pair<TextView, TextView>? = null) {
         lifecycleScope.launch {
-            try {
-                val url = URL(session.serverUrl.trimEnd('/') + "/api/driver/stats/today")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
-                conn.setRequestProperty("Authorization", "Bearer ${session.token}")
-                conn.connectTimeout = 5000
-                conn.readTimeout = 5000
-                if (conn.responseCode == 200) {
-                    val body = BufferedReader(InputStreamReader(conn.inputStream)).readText()
-                    val json = org.json.JSONObject(body)
-                    val earnings = json.optDouble("earningsToday", 0.0)
-                    val rides = json.optInt("ridesToday", 0) + json.optInt("assistsToday", 0)
-                    lastRating = json.optDouble("rating", 0.0)
-                    lastReviewsCount = json.optInt("reviewsCount", 0)
-                    runOnUiThread {
-                        binding.tvEarnings.text = "%.0f ₽ · %d".format(earnings, rides)
-                        menuViews?.let { (tvE, tvR) ->
-                            tvE.text = "%.0f ₽".format(earnings)
-                            tvR.text = if (lastReviewsCount > 0)
-                                "⭐ %.1f · %d отзывов".format(lastRating, lastReviewsCount)
-                            else
-                                "⭐ Нет оценок"
-                        }
-                    }
-                }
-                conn.disconnect()
-            } catch (_: Exception) {
+            val result: org.json.JSONObject? = withContext(Dispatchers.IO) {
+                try {
+                    val url = URL(session.serverUrl.trimEnd('/') + "/api/driver/stats/today")
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.requestMethod = "GET"
+                    conn.setRequestProperty("Authorization", "Bearer ${session.token}")
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 5000
+                    val body = if (conn.responseCode == 200) conn.inputStream.bufferedReader().use { it.readText() } else null
+                    conn.disconnect()
+                    if (body != null) org.json.JSONObject(body) else null
+                } catch (_: Exception) { null }
+            }
+            if (result == null) {
                 runOnUiThread { binding.tvEarnings.text = "— ₽" }
+                return@launch
+            }
+            val earnings = result.optDouble("earningsToday", 0.0)
+            val rides = result.optInt("ridesToday", 0) + result.optInt("assistsToday", 0)
+            currentRating = result.optDouble("rating", 0.0)
+            val reviewsCount = result.optInt("reviewsCount", 0)
+            runOnUiThread {
+                binding.tvEarnings.text = "%.0f ₽ · %d".format(earnings, rides)
+                menuViews?.let { (tvE, tvR) ->
+                    tvE.text = "%.0f ₽".format(earnings)
+                    tvR.text = if (reviewsCount > 0)
+                        "⭐ %.1f · %d отзывов".format(currentRating, reviewsCount)
+                    else
+                        "⭐ Нет оценок"
+                }
             }
         }
     }
@@ -1355,31 +1440,35 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshBonuses(tvTotal: TextView, tvEmpty: TextView, container: LinearLayout, dialog: Dialog) {
         lifecycleScope.launch {
-            try {
-                val url = URL(session.serverUrl.trimEnd('/') + "/api/bonuses/my")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
-                conn.setRequestProperty("Authorization", "Bearer ${session.token}")
-                conn.connectTimeout = 5000
-                conn.readTimeout = 5000
-                if (conn.responseCode == 200) {
-                    val body = BufferedReader(InputStreamReader(conn.inputStream)).readText()
-                    val json = org.json.JSONObject(body)
-                    val arr = json.optJSONArray("available") ?: org.json.JSONArray()
-                    val total = json.optDouble("totalEarned", 0.0)
-                    runOnUiThread {
-                        if (!dialog.isShowing) return@runOnUiThread
-                        tvEmpty.visibility = if (arr.length() == 0) View.VISIBLE else View.GONE
-                        tvTotal.text = "Получено: %.0f ₽".format(total)
-                        container.removeAllViews()
-                        for (i in 0 until arr.length()) {
-                            container.addView(buildBonusRow(arr.optJSONObject(i), tvTotal, tvEmpty, container, dialog))
-                        }
-                    }
-                }
-                conn.disconnect()
-            } catch (_: Exception) {
+            val response: Pair<org.json.JSONObject, Int>? = withContext(Dispatchers.IO) {
+                try {
+                    val url = URL(session.serverUrl.trimEnd('/') + "/api/bonuses/my")
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.requestMethod = "GET"
+                    conn.setRequestProperty("Authorization", "Bearer ${session.token}")
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 5000
+                    val code = conn.responseCode
+                    val body = if (code == 200) BufferedReader(InputStreamReader(conn.inputStream)).readText() else null
+                    conn.disconnect()
+                    if (body != null) org.json.JSONObject(body) to code else null
+                } catch (_: Exception) { null }
+            }
+            if (response == null) {
                 runOnUiThread { tvEmpty.text = "Не удалось загрузить бонусы" }
+                return@launch
+            }
+            val json = response.first
+            val arr = json.optJSONArray("available") ?: org.json.JSONArray()
+            val total = json.optDouble("totalEarned", 0.0)
+            runOnUiThread {
+                if (!dialog.isShowing) return@runOnUiThread
+                tvEmpty.visibility = if (arr.length() == 0) View.VISIBLE else View.GONE
+                tvTotal.text = "Получено: %.0f ₽".format(total)
+                container.removeAllViews()
+                for (i in 0 until arr.length()) {
+                    container.addView(buildBonusRow(arr.optJSONObject(i), tvTotal, tvEmpty, container, dialog))
+                }
             }
         }
     }
@@ -1484,35 +1573,42 @@ class MainActivity : AppCompatActivity() {
         backBtn.setOnClickListener { dialog.dismiss() }
 
         lifecycleScope.launch {
+            val body: String? = withContext(Dispatchers.IO) {
+                try {
+                    val url = URL(session.serverUrl.trimEnd('/') + "/api/driver/skipped")
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.requestMethod = "GET"
+                    conn.setRequestProperty("Authorization", "Bearer ${session.token}")
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 5000
+                    val result = if (conn.responseCode == 200) conn.inputStream.bufferedReader().use { it.readText() } else null
+                    conn.disconnect()
+                    result
+                } catch (_: Exception) { null }
+            }
+            if (body == null) {
+                runOnUiThread { tvEmpty.visibility = View.VISIBLE }
+                return@launch
+            }
             try {
-                val url = URL(session.serverUrl.trimEnd('/') + "/api/driver/skipped")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
-                conn.setRequestProperty("Authorization", "Bearer ${session.token}")
-                conn.connectTimeout = 5000
-                conn.readTimeout = 5000
-                if (conn.responseCode == 200) {
-                    val body = BufferedReader(InputStreamReader(conn.inputStream)).readText()
-                    val json = org.json.JSONObject(body)
-                    val arr = json.optJSONArray("skips") ?: org.json.JSONArray()
-                    runOnUiThread {
-                        if (arr.length() == 0) {
-                            tvEmpty.visibility = View.VISIBLE
-                        } else {
-                            val items = (0 until arr.length()).map { i ->
-                                val obj = arr.optJSONObject(i)
-                                val name = obj?.optString("passenger_name", "—") ?: "—"
-                                val addr = obj?.optString("pickup_address", "") ?: ""
-                                val time = obj?.optString("skipped_at", "")?.take(16)?.replace("T", " ") ?: ""
-                                "$name  ·  $time\n$addr"
-                            }
-                            val adapter = android.widget.ArrayAdapter(this@MainActivity,
-                                android.R.layout.simple_list_item_1, items)
-                            listView.adapter = adapter
+                val json = org.json.JSONObject(body)
+                val arr = json.optJSONArray("skips") ?: org.json.JSONArray()
+                runOnUiThread {
+                    if (arr.length() == 0) {
+                        tvEmpty.visibility = View.VISIBLE
+                    } else {
+                        val items = (0 until arr.length()).map { i ->
+                            val obj = arr.optJSONObject(i)
+                            val name = obj?.optString("passenger_name", "—") ?: "—"
+                            val addr = obj?.optString("pickup_address", "") ?: ""
+                            val time = obj?.optString("skipped_at", "")?.take(16)?.replace("T", " ") ?: ""
+                            "$name  ·  $time\n$addr"
                         }
+                        val adapter = android.widget.ArrayAdapter(this@MainActivity,
+                            android.R.layout.simple_list_item_1, items)
+                        listView.adapter = adapter
                     }
                 }
-                conn.disconnect()
             } catch (_: Exception) {
                 runOnUiThread { tvEmpty.visibility = View.VISIBLE }
             }
@@ -1640,6 +1736,8 @@ class MainActivity : AppCompatActivity() {
             if (route != null) {
                 val geom = route.optJSONObject("geometry")
                 if (geom != null) {
+                    lastRouteDistance = route.optDouble("distance", 0.0) / 1000.0
+                    lastRouteDuration = route.optDouble("duration", 0.0)
                     runOnUiThread { mapController.drawRouteOnMap(mapLibreMap, geom) }
                 }
             }
@@ -1664,11 +1762,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.getBooleanExtra(PipActionReceiver.EXTRA_FINISH_ORDER, false)) {
-            if (currentRideStatus == "in_progress" && currentRideId != null) {
-                showPriceModal(currentRideId!!)
-            }
-        }
+        handlePipFinishIntent(intent)
     }
 
     override fun onResume() {
@@ -1689,7 +1783,11 @@ class MainActivity : AppCompatActivity() {
         binding.mapView.onDestroy()
         locationBroadcastHandler.removeCallbacksAndMessages(null)
         stopCountdown()
-        DriverService.stop(this)
+        rideSocket.disconnect()
+        // Foreground-сервис останавливаем только при реальном закрытии приложения,
+        // а не при повороте экрана — иначе после переворота заказы пропадают,
+        // а перезапускает его только ручной toggle «онлайн».
+        if (isFinishing) DriverService.stop(this)
     }
 
     private fun restoreSavedState(bundle: Bundle) {

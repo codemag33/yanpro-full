@@ -83,12 +83,13 @@ class GeocodeRepository(private val context: Context) {
     }
 
     /**
-     * Резервный геокодер через сервер (Nominatim/Яндекс).
+     * Резервный геокодер через сервер (Nominatim).
+     * Ответ: { results: [{ address, lat, lon }] }
      */
     suspend fun searchViaServer(query: String, serverUrl: String): GeocodeResult? = withContext(Dispatchers.IO) {
         try {
             val encoded = URLEncoder.encode(query, "UTF-8")
-            val url = URL("$serverUrl/geocode?q=$encoded")
+            val url = URL("$serverUrl/api/geocode?q=$encoded")
             val connection = url.openConnection() as HttpURLConnection
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
@@ -98,10 +99,13 @@ class GeocodeRepository(private val context: Context) {
 
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val json = JSONObject(body)
+            val results = json.optJSONArray("results") ?: return@withContext null
+            if (results.length() == 0) return@withContext null
+            val first = results.optJSONObject(0) ?: return@withContext null
             GeocodeResult(
-                latitude = json.getDouble("lat"),
-                longitude = json.getDouble("lon"),
-                label = json.optString("label", query)
+                latitude = first.optDouble("lat", 0.0),
+                longitude = first.optDouble("lon", 0.0),
+                label = first.optString("address", query)
             )
         } catch (e: Exception) {
             Log.e(TAG, "Server geocode failed", e)

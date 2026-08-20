@@ -65,6 +65,12 @@ class SessionManager(context: Context) {
     }
 
     fun clear() {
+        // Сохраняем user-специфичные настройки устройства (сервер/звук),
+        // чтобы после входа нового водителя они не сбрасывались.
+        val server = serverUrl
+        val sound = soundEnabled
         prefs.edit().clear().apply()
+        serverUrl = server
+        soundEnabled = sound
     }
 }

@@ -68,20 +68,24 @@ class EarningsActivity : AppCompatActivity() {
 
     private fun loadStats() {
         lifecycleScope.launch {
-            try {
-                val data = withContext(Dispatchers.IO) {
+            val data = withContext(Dispatchers.IO) {
+                try {
                     apiGet("/api/driver/stats/today?days=$currentDays")
-                }
-                if (data != null) {
-                    val earnings = data.optDouble("earningsToday", 0.0) ?: 0.0
-                    val rides = data.optInt("ridesToday", 0)
+                } catch (_: Exception) { null }
+            }
+            if (data != null) {
+                val earnings = data.optDouble("earningsToday", 0.0) ?: 0.0
+                val rides = data.optInt("ridesToday", 0)
+                val assists = data.optInt("assistsToday", 0)
+                val orders = rides + assists
 
-                    binding.tvTodayEarnings.text = "₽${earnings.toInt()}"
-                    binding.tvTodayRides.text = rides.toString()
-                    binding.tvAvgRide.text = if (rides > 0) "₽${(earnings / rides).toInt()}" else "0"
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                binding.tvTodayEarnings.text = "₽${earnings.toInt()}"
+                binding.tvTodayRides.text = orders.toString()
+                binding.tvAvgRide.text = if (orders > 0) "₽${(earnings / orders).toInt()}" else "0"
+            } else {
+                binding.tvTodayEarnings.text = "—"
+                binding.tvTodayRides.text = "0"
+                binding.tvAvgRide.text = "0"
             }
         }
     }
@@ -197,31 +201,42 @@ class EarningsActivity : AppCompatActivity() {
 
     private fun loadChart() {
         lifecycleScope.launch {
-            try {
-                val data = withContext(Dispatchers.IO) {
+            val data = withContext(Dispatchers.IO) {
+                try {
                     apiGet("/api/driver/earnings-history?days=$currentDays")
-                }
-                if (data != null) {
-                    val days = data.optJSONArray("days")
-                    if (days != null && days.length() > 0) {
-                        val pairs = mutableListOf<Pair<String, Float>>()
-                        for (i in 0 until days.length()) {
-                            val day = days.getJSONObject(i)
-                            val date = day.optString("date", "")
-                            val earnings = day.optDouble("earnings", 0.0)
-                            val label = if (date.length >= 10) {
-                                val d = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(date)
-                                SimpleDateFormat("dd.MM", Locale.getDefault()).format(d ?: Date())
-                            } else "?"
-                            pairs.add(Pair(label, earnings.toFloat()))
-                        }
-                        binding.barChart.setData(pairs)
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                } catch (_: Exception) { null }
+            }
+            if (data != null) {
+                binding.barChart.setData(zeroFillChart(data, currentDays))
+            } else {
+                binding.barChart.setData(emptyList())
             }
         }
+    }
+
+    // Сервер отдаёт только дни с заработком — заполняем пропуски нулями,
+    // чтобы график показывал все N дней периода.
+    private fun zeroFillChart(data: JSONObject?, days: Int): List<Pair<String, Float>> {
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val fmtLabel = SimpleDateFormat("dd.MM", Locale.getDefault())
+        val from = System.currentTimeMillis() - (days - 1) * 24L * 3600 * 1000
+        val byDate = mutableMapOf<String, Float>()
+        val raw = data?.optJSONArray("days")
+        if (raw != null) {
+            for (i in 0 until raw.length()) {
+                val day = raw.getJSONObject(i)
+                val date = day.optString("date", "")
+                byDate[date.take(10)] = day.optDouble("earnings", 0.0).toFloat()
+            }
+        }
+        val pairs = mutableListOf<Pair<String, Float>>()
+        for (offset in (days - 1) downTo 0) {
+            val d = Date(from + offset * 24L * 3600 * 1000)
+            val key = fmt.format(d)
+            val label = fmtLabel.format(d)
+            pairs.add(label to (byDate[key] ?: 0f))
+        }
+        return pairs
     }
 
     private fun apiGet(path: String): JSONObject? {

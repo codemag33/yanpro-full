@@ -12,7 +12,7 @@ import org.json.JSONObject
  *
  * Максимум 5 записей для каждого target. Дедупликация по заголовку.
  */
-class SearchHistoryRepository(context: Context) {
+class SearchHistoryRepository(context: Context, private val userId: String? = null) {
 
     data class SearchEntry(
         val title: String,
@@ -24,8 +24,13 @@ class SearchHistoryRepository(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("search_recent", Context.MODE_PRIVATE)
 
+    // История поиска хранится персонально для каждого аккаунта —
+    // после выхода другого водителя чужие адреса не подставляются.
+    private fun key(target: Char): String =
+        if (userId.isNullOrEmpty()) "recent_$target" else "recent_${userId}_$target"
+
     suspend fun load(target: Char): List<SearchEntry> = withContext(Dispatchers.IO) {
-        val json = prefs.getString("recent_$target", null) ?: return@withContext emptyList()
+        val json = prefs.getString(key(target), null) ?: return@withContext emptyList()
         try {
             val arr = JSONArray(json)
             (0 until arr.length()).map { i ->
@@ -51,7 +56,7 @@ class SearchHistoryRepository(context: Context) {
         maxEntries: Int = 5
     ) = withContext(Dispatchers.IO) {
         try {
-            val json = prefs.getString("recent_$target", "[]") ?: "[]"
+            val json = prefs.getString(key(target), "[]") ?: "[]"
             val arr = JSONArray(json)
 
             // Фильтруем дубликаты по заголовку
@@ -76,7 +81,7 @@ class SearchHistoryRepository(context: Context) {
                 result.put(filtered.getJSONObject(i))
             }
 
-            prefs.edit().putString("recent_$target", result.toString()).apply()
+            prefs.edit().putString(key(target), result.toString()).apply()
         } catch (e: Exception) {
             // Игнорируем ошибки сохранения
         }

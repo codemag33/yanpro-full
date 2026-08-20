@@ -75,6 +75,7 @@ class RideSocketManager(
     var onServerError: ((context: String) -> Unit)? = null
 
     // ─── Callbacks: торг ценой ─────────────────────────────────────────────
+    var onPriceOffered: ((rideId: String, price: Double) -> Unit)? = null
     var onPriceAccepted: ((rideId: String, price: Double) -> Unit)? = null
     var onPriceRejected: ((rideId: String) -> Unit)? = null
 
@@ -170,6 +171,10 @@ class RideSocketManager(
                 onPassengerLocation?.invoke(data.optDouble("lat"), data.optDouble("lon"))
             }
             // ─── Торг ценой ───────────────────────────────────────────────
+            s.on("ride:price_offered") { args ->
+                val data = args.firstOrNull() as? JSONObject ?: return@on
+                onPriceOffered?.invoke(data.optString("rideId"), data.optDouble("price"))
+            }
             s.on("ride:price_accepted") { args ->
                 val data = args.firstOrNull() as? JSONObject ?: return@on
                 onPriceAccepted?.invoke(data.optString("rideId"), data.optDouble("price"))
