@@ -3,10 +3,14 @@
 // Тап по пилюле разворачивает лист обратно.
 
 export function initSheetCollapse(sheet: HTMLElement, bar: HTMLElement, barLabel: () => string) {
-  const TRIGGER_PX = 110; // дальше порога — сворачиваем
   let startY = 0;
   let pulling = false;
   let dy = 0;
+
+  // Порог адаптивный: ~треть высоты листа, но не менее 80px и не более 150px,
+  // чтобы на маленьком экране жест срабатывал с коротким свайпом.
+  const threshold = () =>
+    Math.min(150, Math.max(80, Math.round(sheet.getBoundingClientRect().height * 0.3)));
 
   const targetIsHandle = (e: PointerEvent) =>
     e.target instanceof HTMLElement && !!e.target.closest('.dragHandle');
@@ -14,8 +18,8 @@ export function initSheetCollapse(sheet: HTMLElement, bar: HTMLElement, barLabel
   sheet.addEventListener('pointerdown', (e) => {
     if (!targetIsHandle(e)) return;
     // не перехватываем жест, если содержимое листа прокручено и пользователь
-    // пролистывает его вверх
-    if (sheet.scrollTop > 0) return;
+    // пролистывает его вверх (небольшой допуск на точность касания)
+    if (sheet.scrollTop > 2) return;
     pulling = true;
     dy = 0;
     startY = e.clientY;
@@ -25,6 +29,7 @@ export function initSheetCollapse(sheet: HTMLElement, bar: HTMLElement, barLabel
       /* noop */
     }
     sheet.style.transition = 'none';
+    sheet.style.willChange = 'transform';
   });
 
   sheet.addEventListener('pointermove', (e) => {
@@ -36,9 +41,10 @@ export function initSheetCollapse(sheet: HTMLElement, bar: HTMLElement, barLabel
   const finishPull = () => {
     if (!pulling) return;
     pulling = false;
-    sheet.style.transition = 'transform .32s cubic-bezier(.2,.8,.2,1)';
-    if (dy >= TRIGGER_PX) collapse();
+    sheet.style.transition = 'transform .28s cubic-bezier(.2,.8,.2,1)';
+    if (dy >= threshold()) collapse();
     else sheet.style.transform = '';
+    sheet.style.willChange = '';
     dy = 0;
   };
   sheet.addEventListener('pointerup', finishPull);
